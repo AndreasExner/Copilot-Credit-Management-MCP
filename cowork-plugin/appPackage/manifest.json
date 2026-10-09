@@ -2,12 +2,12 @@
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
   "manifestVersion": "1.29",
   "version": "0.4.0",
-  "id": "8c6d18a4-79b1-4d67-b817-821732cc8fb6",
+  "id": "${PLUGIN_APP_ID}",
   "developer": {
     "name": "Copilot Credit Management",
-    "websiteUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/about",
-    "privacyUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/privacy",
-    "termsOfUseUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/terms"
+    "websiteUrl": "${MCP_ORIGIN}/about",
+    "privacyUrl": "${MCP_ORIGIN}/privacy",
+    "termsOfUseUrl": "${MCP_ORIGIN}/terms"
   },
   "name": {
     "short": "Copilot Credit Management",
@@ -23,7 +23,7 @@
   },
   "accentColor": "#246B47",
   "validDomains": [
-    "ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io"
+    "${MCP_HOST}"
   ],
   "agentSkills": [
     {
@@ -37,10 +37,10 @@
       "description": "Read balances, policies, assigned groups, group users and targeted basic user profiles as the caller. Profile names require User.ReadBasic.All separately from roster Assignment/GroupMember.ReadBasic and balance UserData consent. Experimental and read-only.",
       "toolSource": {
         "remoteMcpServer": {
-          "mcpServerUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp",
+          "mcpServerUrl": "${MCP_PUBLIC_URL}",
           "authorization": {
             "type": "OAuthPluginVault",
-            "referenceId": "ODA1MmFhYjgtNjk4OS00NTFmLTkxYjItZmFhNzdmMjk4MzI0IyMwZDgzNjc0NS1lODM3LTQ1ZjItODk0Ny02ZGZmMTVjZDQ2NDE="
+            "referenceId": "${OAUTH_REFERENCE_ID}"
           }
         }
       }

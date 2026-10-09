@@ -20,23 +20,12 @@ in the server or deployment package.
 
 ## Current delivery stage
 
-**The protected remote MCP server is deployed in Canada East.** The user-approved
-region retry resolved the Central US capacity blocker. The original Central US
-resources remain unchanged; nothing was deleted.
+This repository is a tenant-neutral source template, not a shared hosted
+service. Configure your own authorized single-tenant deployment. Actual tenant,
+subscription, application and resource identifiers belong only in ignored local
+state; the source manifest contains explicit configuration markers.
 
-The approved backend authentication is now **certificate-free managed-identity
-federation**. The application is running with one healthy replica, and its
-actual managed identity successfully authenticates the dedicated MCP application.
-Backend adapter/protocol tests and 16 plugin archive tests cover the locally
-prepared profile release described below. The inherited Key Vault
-policy remains unchanged. Certificate setup previously failed with
-`403 ForbiddenByConnection`; the selected mode does not access that vault.
-
-MCP endpoint:
-[https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp).
-This is a protected endpoint: anonymous requests correctly return 401.
-
-The deployed release 0.3.0 implements five real MCP tools:
+Version 0.3.0 implements five read-only MCP tools:
 
 - `get_tenant_credit_balance`
 - `list_spending_policies`, including validated, unchanged continuation URLs
@@ -52,11 +41,13 @@ The deployed release 0.3.0 implements five real MCP tools:
 
 ### Prepared release 0.4.0: missing user names
 
-Local source and the
-[prepared plugin ZIP](cowork-plugin/build/copilot-credit-management-0.4.0.zip)
-add a sixth read-only tool, `get_user_basic_profile`. **It is not deployed yet.**
-Importing the new ZIP alone cannot add that tool to the existing backend.
-Deployment requires separate authorization and Azure validation.
+Current source and the
+[0.4.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.4.0/copilot-credit-management-0.4.0-template.zip)
+add a sixth read-only tool, `get_user_basic_profile`. **The profile release has
+not been rolled out to the existing evaluation backend, which remains 0.3.0.**
+Public ZIPs are deliberately unconfigured templates, not import-ready plugins.
+Configure and validate a local ZIP before importing it, and deploy a matching
+backend through a separately authorized Azure workflow.
 
 The membership read selects names but only requests membership permission.
 Graph can therefore return member GUIDs with null profile properties. The new
@@ -78,7 +69,7 @@ After an authorized matching-backend deployment, prepare consent review with:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\New-GraphConsentUrl.ps1 `
-  -McpPublicUrl 'https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp' `
+  -McpPublicUrl $mcpPublicUrl `
   -IncludePolicyRoster -IncludeUserProfiles
 ```
 
@@ -125,10 +116,14 @@ is supporting Graph functionality, not another cost-management operation.
 There is no write endpoint,
 anonymous MCP mode or app-only Graph fallback.
 
-The importable [Cowork plugin ZIP](cowork-plugin/build/copilot-credit-management-0.3.0.zip)
-includes an integrated Skill and the real OAuth token-store reference. Its
-manifest 1.29 schema, archive contents and icons were validated. See the
-[plugin import and acceptance instructions](cowork-plugin/README.md).
+The [0.3.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.4.0/copilot-credit-management-0.3.0-template.zip)
+includes the corresponding integrated Skill without deployment identifiers.
+See the [release downloads](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0)
+for all four historical/current template versions and SHA-256 checksums, and
+the [local configuration and import instructions](cowork-plugin/README.md).
+Template checks verify the exact placeholder locations and schema after
+synthetic substitution; only the separately configured local ZIP is validated
+as import-ready. Neither check establishes live Cowork acceptance.
 The successful Cowork read is user-reported acceptance, not an independent
 runtime certification by the assistant. Reload persistence remains unconfirmed.
 
@@ -136,55 +131,13 @@ Local protocol tests are not evidence of real Cowork authentication or Graph
 access. The protected-resource metadata and the consent callback also do not
 prove that consent has been granted.
 
-### Persistent deployment state
+### Local deployment state
 
-#### Canada East: active foundation
-
-| Resource | Current state |
-|---|---|
-| Resource group `rg-ccm-eval-tnx2hg` | Created |
-| Container Apps environment `cae-ccm-eval-tnx2hg` | Succeeded |
-| ACR `crccmevaltnx2hg` | Succeeded; roster release image cloud-built and digest pinned |
-| Key Vault `kv-mcp-tnx2hg` | Created; governance disables public access |
-| Identity `id-ccm-eval-tnx2hg` | AcrPull and vault signing roles confirmed |
-| Log Analytics `log-ccm-eval-tnx2hg` | Created |
-| Dedicated MCP API and Cowork Entra registrations | Created; `Mcp.Read` exposed |
-| Managed-identity federation | Configured; live application credential proof passed |
-| Container App `ca-ccm-eval-tnx2hg` | Running; revision healthy, one replica |
-| OBO certificate | Not required; none created |
-| Graph admin consent | Original two scopes verified; updated plugin working user-reported; additional roster scopes require admin review |
-| Cowork OAuth configuration | Actual token-store ID supplied; tenant verified; successful Cowork read user-reported |
-| Cowork plugin 0.3.0 | Import ZIP built; schema and 14 archive tests passed; earlier ZIPs preserved; roster acceptance pending |
-| Publisher notices | Public project/privacy/usage pages deployed and verified |
-
-API application ID: `9941ac93-e4db-4df3-9a82-fc903ff2fbaa`.
-Connector application ID: `21796b9d-9908-4d21-ba40-6477c56db15d`.
-The operator assignment and user-specific MCP consent are in place. The user
-also granted Graph admin consent; the actual tenant-wide Graph grant was
-verified at 2026-10-08T16:26:12Z. No application certificate was created. No
-connector client secret was received or persisted by this implementation;
-the connector's separate credential belongs only in Microsoft's token store.
-
-The running 0.3.0 image was built in Canada East (ACR run `cw4`, tag
-`ccm-mcp:policy-roster-v1`). Its independently verified, deployed digest is
-`sha256:3080a7c6818247be3db0a9b3335fcb7efa40ebd67c72d1da8f2de55040e1f88f`.
-Deployment `ccm-eval-policy-roster` succeeded at 2026-10-09T09:06:24Z.
-The current revision is `ca-ccm-eval-tnx2hg--0000003`, Healthy with one ready
-replica and `RunningAtMaxScale` at the configured maximum of one.
-The previous user-service/notice/federation images and original certificate-backed image remain
-preserved in the registry.
-
-Live verification: both health routes and OAuth metadata return 200. Anonymous
-GET/POST/DELETE and an invalid bearer token return 401. The in-container
-credential probe verified the real managed identity, federated application
-authentication, and the resulting token's signature/issuer/tenant/audience;
-`/mcp` rejected that app-only token with 401. This probe does not call Graph.
-The dedicated MCP application's tenant-wide Graph grant verified on 2026-10-08 contained exactly
-`CopilotCostManagement.Read.All` and `CopilotCostManagement-Policy.Read.All`
-(delegated permissions). The actual Cowork OAuth registration ID is now included
-in the plugin. The user reports a successful signed-in-user read; no independent
-assistant runtime certification or verification of both read tools is claimed.
-The remaining operations require the separate current API contracts above.
+Keep deployment evidence, real resource names, immutable image digests, consent
+proof and OAuth registration identifiers under ignored `.azure` state. They
+are not reusable configuration for another tenant. A successful evaluation
+deployment does not certify a new tenant, consent grant or plugin installation.
+The repository provides no public MCP service or authentication credentials.
 
 ### Additional UserData consent and acceptance
 
@@ -193,7 +146,7 @@ original scopes do not replace it. Generate the administrator-review URL:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\New-GraphConsentUrl.ps1 `
-  -McpPublicUrl 'https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp' `
+  -McpPublicUrl $mcpPublicUrl `
   -IncludeUserServiceBalances
 ```
 
@@ -224,7 +177,7 @@ Generate a review URL for the five read scopes:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\New-GraphConsentUrl.ps1 `
-  -McpPublicUrl 'https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp' `
+  -McpPublicUrl $mcpPublicUrl `
   -IncludePolicyRoster
 ```
 
@@ -302,34 +255,6 @@ proposals, replay/concurrency protection, read-back verification and explicit
 unknown-outcome handling without blind mutation retries. Read-only annotations
 are not an authorization boundary; writes need enforced authorization.
 
-#### Central US: preserved first attempt
-
-| Resource | Current state |
-|---|---|
-| Resource group `rg-ccm-eval-m354jd` | Created |
-| ACR `crccmevalm354jd` | Succeeded; admin credentials disabled |
-| Key Vault `kv-mcp-m354jd` | Succeeded; RBAC and purge protection enabled |
-| Identity `id-ccm-eval-m354jd` | Created; vault signing role confirmed |
-| Log Analytics `log-ccm-eval-m354jd` | Created |
-| Container Apps environment `cae-ccm-eval-m354jd` | Failed: regional capacity |
-| Container App | Not created |
-
-The actual Azure cloud build succeeded (run `cj1`) and the image is persisted
-as `crccmevalm354jd.azurecr.io/ccm-mcp:0.1.0`, with digest
-`sha256:ff033a92beb590ef5611405ffe2065064ee6353257f4d60c9dd5d50554b611e7`.
-No local Docker installation was used. This is a verified container image,
-not a working public MCP endpoint.
-
-Both foundations remain and may incur costs. Do not redeploy into or delete
-the failed Central US environment without authorization. The new Canada East
-AcrPull gate passed. Certificate-free federation removes the runtime dependency
-on private Key Vault access; genuine delegated Graph/Cowork proof is still required.
-
-The exact inherited rule is `KeyVault_PublicNetwork_Modify` in
-`MCAPSGovDeployPolicies`. No private networking, policy exemption, exception
-tags or forced public access are used. Both existing foundations and their
-vaults are preserved.
-
 ## Authentication
 
 Two dedicated Entra registrations separate the Cowork OAuth client from the
@@ -391,8 +316,10 @@ Azure. Configuration errors report field names, not secret values.
 Environment-specific deployment plans and setup state are local under `.azure`
 and deliberately excluded from this repository. Establish your own approved
 tenant/subscription/region configuration before running any cloud operation.
-The checked-in plugin manifest describes this evaluation deployment; its OAuth
-reference is an identifier, not a transferable credential or permission grant.
+The checked-in plugin manifest is unconfigured. Local packaging requires your
+explicit approved tenant and plugin app ID plus an independently supplied OAuth
+reference and endpoint. An OAuth reference is an identifier, not a transferable
+credential or permission grant.
 
 Deployment uses Azure CLI and Bicep with two phases. This preserves the existing,
 unrelated `azd` login and avoids provisioning a publicly exposed placeholder
@@ -545,9 +472,16 @@ included in container build context or any public package.
 Source code, tests, dependency lockfile, infrastructure, packaging scripts,
 plugin source/icons and documentation are included. Confidential API
 documentation, local `.azure` state and validation environments, credentials,
-installed dependencies, generated build outputs and plugin ZIPs are excluded.
-Keep those exclusions intact when publishing changes; build plugin ZIPs locally
-from the supplied source after configuring your own authorized OAuth registration.
+installed dependencies and generated build outputs are excluded from Git.
+Tenant-neutral template ZIPs and SHA-256 checksums are distributed as
+[GitHub Release attachments](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0),
+not binary commits. Configured, import-ready ZIPs remain local and must not be
+uploaded as neutral templates. The public templates intentionally retain
+configuration markers and cannot be imported directly.
+
+The current source and release attachments have been neutralized; older Git
+commits still contain previously published deployment identifiers. No history
+rewrite or credential rotation is performed by this cleanup.
 
 ## License
 

@@ -31,23 +31,33 @@ skill and one OAuth-protected remote MCP connector.
 
 ## Verified delivery state
 
-[Prepared ZIP: copilot-credit-management-0.4.0.zip](build/copilot-credit-management-0.4.0.zip)
-is built and validated against the official 1.29 JSON Schema and the exact
-archive constraints. All 16 positive/negative package tests pass. This is not a
-claim that Microsoft's App Validation Library or tenant publication has been
-completed. The user reports a successful Cowork read on 2026-10-08; this is
-user-reported acceptance, not an independently observed response.
+[Download template ZIPs and SHA-256 checksums](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0).
+**These public ZIPs are tenant-neutral templates, not import-ready packages.**
+Check each downloaded ZIP with `Get-FileHash -Algorithm SHA256` against the
+matching filename in the release's `SHA256SUMS.txt` before extracting it.
+They contain no configured tenant, app ID, OAuth reference or MCP endpoint.
+The manifest retains explicit markers that must be configured locally.
+Template validation checks their exact locations, the archive constraints and
+the official 1.29 schema after synthetic substitution. Configured local ZIPs
+are validated separately against their independently supplied configuration.
+Neither check establishes tenant publication or runtime acceptance.
+
+| Template version | Read tools | Status |
+|---|---|---|
+| 0.1.0 | Tenant balance and policies | Historical template |
+| 0.2.0 | Adds user service balances | Historical template |
+| 0.3.0 | Adds assigned groups and group users | Matches the existing evaluation backend's feature set |
+| 0.4.0 | Adds targeted basic user profiles | Prepared profile preview; matching backend rollout pending |
 
 **0.4.0 is prepared locally, not deployed.** The existing backend remains 0.3.0
 with five read tools. The new profile tool requires a separately approved
 backend update and delegated basic-profile consent; importing this ZIP alone
 cannot make it available. Do not treat package validation as live acceptance.
 
-The publisher's [project](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/about),
-[privacy](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/privacy)
-and [usage](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/terms)
-notices are deployed and return HTTP 200. Health/OAuth metadata remain available,
-and anonymous or invalid-token MCP requests still return 401.
+Local packaging derives the publisher's `/about`, `/privacy` and `/terms`
+notice URLs and allowed domain from your approved MCP origin. Verify those
+pages, health, OAuth metadata and rejection of anonymous/invalid-token MCP
+requests on your own deployment. No evaluation endpoint is published here.
 
 The original read prerequisite is now satisfied by the user's report.
 The user also reports the updated user-service plugin working on 2026-10-09;
@@ -67,29 +77,68 @@ based on the display pattern.
 Requires Windows, PowerShell 7 and Python. The official schema includes Unicode
 regular expressions such as `\p{L}`; validation uses `jsonschema` plus `regex`
 rather than weakening or rewriting the schema. The isolated tooling environment
-does not change global packages. No secret, token or runtime account is needed.
+does not change global packages. No secret, token or runtime account is needed for packaging.
 
 ```powershell
 python -m venv .\.azure\plugin-validator-env --system-site-packages
 .\.azure\plugin-validator-env\Scripts\python.exe -m pip install -r .\scripts\requirements-plugin-validation.txt
-pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1
+pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 -Template
 .\.azure\plugin-validator-env\Scripts\python.exe .\scripts\tests\Plugin.Tests.py
 ```
 
-Run from the workspace root. The pipeline creates original project icons,
-packages only the five allowlisted files, validates the actual ZIP against
-Microsoft's official 1.29 schema and project constraints, and publishes
-`build/copilot-credit-management-0.4.0.zip` only after successful validation.
-The downloaded schema is cached outside the archive under `.azure`.
+Run from the workspace root. The pipeline reuses the checked-in project icons,
+packages only the five allowlisted files and publishes
+`build/copilot-credit-management-0.4.0-template.zip` after template validation.
+The downloaded official schema is cached outside the archive under `.azure`.
+The tests use synthetic configuration in temporary directories, never real
+tenant state or cloud calls, and do not overwrite your configured ZIPs.
 
-Local `.azure` state and generated ZIPs are intentionally not committed.
-Before building from a fresh clone, create `.azure/cowork-oauth.json` containing
-the real `referenceId` and `mcpPublicUrl` from your authorized OAuth setup;
-the validator uses these independently supplied values to check the manifest.
-The current build script is restricted to the evaluation tenant, and the
-checked-in manifest references that deployment. Adapting it to another tenant
-requires reviewing the tenant guard, manifest, endpoint and OAuth registration
-together. Never add secrets or access tokens to that configuration or Git.
+### Configure an import-ready ZIP locally
+
+Clone the matching source repository for the packaging scripts. For an older
+template, extract its ZIP to a separate directory and pass that directory with
+`-SourcePath`; this retains that template's version and Skill rather than
+silently upgrading to the current source.
+
+Create ignored `.azure/cowork-oauth.json` using your approved real setup values:
+
+```powershell
+New-Item -ItemType Directory -Path .\.azure -Force | Out-Null
+@{
+  tenantId = $tenantId
+  referenceId = $referenceId
+  mcpPublicUrl = $mcpPublicUrl
+} | ConvertTo-Json | Set-Content -LiteralPath .\.azure\cowork-oauth.json -Encoding utf8
+
+pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 `
+  -TenantId $tenantId -AppId $pluginAppId
+```
+
+The variables must contain your actual approved tenant, OAuth token-store
+reference, HTTPS `/mcp` endpoint and stable plugin app GUID. For updates, retain
+the existing plugin app ID; use a new, locally retained app ID only for a new
+installation. Do not use the MCP API or OAuth client ID as the plugin app ID.
+You can select another ignored config file with `-ConfigurationPath`.
+
+The explicit tenant must match both the saved tenant and the tenant encoded
+in the OAuth reference. Malformed references, missing approval values,
+credential-bearing URLs and non-HTTPS/non-`/mcp` endpoints are rejected.
+The build renders the manifest only inside the output archive; it never writes
+deployment identifiers into the tracked source template. The configured ZIP is
+`build/copilot-credit-management-0.4.0.zip` (or the selected source version).
+Only that validated configured ZIP is suitable for import.
+
+For example, after extracting the 0.3.0 template into a local directory:
+
+```powershell
+pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 `
+  -SourcePath $extractedTemplateDirectory -TenantId $tenantId -AppId $pluginAppId
+```
+
+`.azure` state and generated ZIPs stay out of Git. Publish only the unconfigured
+`-template.zip` files as release attachments, never configured ZIPs, secrets or
+tokens. Base64 OAuth references are identifiers, not encrypted secrets; they
+still disclose the configured tenant and therefore remain local.
 
 This is an intentionally small custom packaging pipeline, a supported path in
 the official Cowork documentation. It does not require provisioning/sharing
@@ -99,8 +148,9 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
 ## Import and acceptance
 
 1. In Cowork, open **Sources & Skills > Plugins** and use its plugin upload/import
-   action. Import the ZIP, not the skill folder or a Skills-only archive.
-   Version 0.4.0 retains the original app ID and OAuth registration; use the
+   action. Import the locally configured ZIP, **not the public template ZIP**,
+   the skill folder or a Skills-only archive.
+   Preserve your original app ID and OAuth registration when updating; use the
    existing plugin's update/import workflow rather than a separate skill import.
    First deploy the matching backend through the approved Azure workflow; the
    currently deployed 0.3.0 server does not expose the profile tool.
@@ -196,15 +246,19 @@ candidate write-scope names do not establish operation schemas, roles or
 tenant availability. Enabling writes requires a separate approved plan and
 verified contracts, not merely a broader consent URL or prompt confirmation.
 
-The real auth reference is stored in [the manifest](appPackage/manifest.json).
-It is an identifier, not a credential. Its encoded tenant was checked against
-the approved deployment tenant. The user reports a successful Cowork read;
+The source [manifest](appPackage/manifest.json) stores only configuration
+markers. The real auth reference is rendered into the local configured ZIP;
+its encoded tenant is checked against the explicitly approved tenant.
+The user reports a successful Cowork read;
 no independent inspection of token-store settings or verification of both
 read scopes is claimed.
 
 The allowlisted build also compares the archive's connector URL/reference with
 the independently saved user-provided configuration in ignored
 `.azure/cowork-oauth.json`; it does not validate those fields against themselves.
+It also checks the archive app ID against the explicitly supplied stable ID.
+These checks establish local configuration consistency, not a live token-store
+grant or endpoint ownership.
 
 The portal registration should use the existing Cowork Entra client,
 `Mcp.Read offline_access`, PKCE, the real MCP base URL, the tenant-specific Entra

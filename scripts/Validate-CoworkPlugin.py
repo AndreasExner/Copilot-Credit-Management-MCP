@@ -34,7 +34,8 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, reference_id: str) -> dict[str, object]:
+def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, reference_id: str,
+             *, template: bool = False, app_id: str | None = None) -> dict[str, object]:
     expected_files = {
         "manifest.json",
         "color.png",
@@ -53,6 +54,32 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
             require(not path.is_absolute() and ".." not in path.parts and "\\" not in name, "Unsafe archive path.")
         payloads = {name: archive.read(name) for name in names}
 
+    manifest = json.loads(payloads["manifest.json"])
+    if template:
+        remote = manifest["agentConnectors"][0]["toolSource"]["remoteMcpServer"]
+        require(manifest["id"] == "${PLUGIN_APP_ID}", "Template must not contain a configured app ID.")
+        require(remote["mcpServerUrl"] == "${MCP_PUBLIC_URL}", "Template must not contain a configured MCP endpoint.")
+        require(remote["authorization"] == {"type": "OAuthPluginVault", "referenceId": "${OAUTH_REFERENCE_ID}"},
+                "Template must retain only the OAuth reference placeholder.")
+        require(manifest["validDomains"] == ["${MCP_HOST}"], "Template must not contain a configured domain.")
+        for field, route in (("websiteUrl", "about"), ("privacyUrl", "privacy"), ("termsOfUseUrl", "terms")):
+            require(manifest["developer"][field] == f"${{MCP_ORIGIN}}/{route}", "Unexpected template publisher URL.")
+        tenant = "11111111-1111-4111-8111-111111111111"
+        app_id = "22222222-2222-4222-8222-222222222222"
+        mcp_url = "https://mcp.example.test/mcp"
+        reference_id = base64.b64encode(f"{tenant}##33333333-3333-4333-8333-333333333333".encode()).decode()
+        rendered = json.dumps(manifest)
+        for marker, value in {
+            "${PLUGIN_APP_ID}": app_id,
+            "${MCP_PUBLIC_URL}": mcp_url,
+            "${OAUTH_REFERENCE_ID}": reference_id,
+            "${MCP_HOST}": "mcp.example.test",
+            "${MCP_ORIGIN}": "https://mcp.example.test",
+        }.items():
+            rendered = rendered.replace(marker, value)
+        require("${" not in rendered, "Unknown placeholder in template.")
+        manifest = json.loads(rendered)
+
     for name, content in payloads.items():
         if name.endswith((".json", ".md")):
             require(not content.startswith(b"\xef\xbb\xbf"), "Text files must be UTF-8 without a BOM.")
@@ -61,9 +88,10 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
                     "Credential-like content is not allowed in the archive.")
             require(not re.search(r"[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text),
                     "A fixed user account must not appear in the archive.")
+            if template and name == "manifest.json":
+                text = json.dumps(manifest)
             require(not re.search(r"\$\{|\bYOUR[-_ ]|<OAuth", text), "Unresolved placeholder in archive.")
 
-    manifest = json.loads(payloads["manifest.json"])
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     checker = FormatChecker()
     checker.checks("regex", raises=regex.error)(unicode_regex_format)
@@ -74,6 +102,8 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
     require(manifest["$schema"] == "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
             "Unexpected manifest schema URL.")
     require(re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]) is not None, "Invalid package version.")
+    if app_id is not None:
+        require(manifest["id"] == app_id, "Plugin app ID does not match the independently supplied ID.")
     require(manifest["agentSkills"] == [{"folder": "./skills/copilot-credit-management"}],
             "Skill registration does not match the packaged folder.")
     require(len(manifest["agentConnectors"]) == 1, "Exactly one MCP connector is required.")
@@ -82,9 +112,14 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
     require(remote["authorization"] == {"type": "OAuthPluginVault", "referenceId": reference_id},
             "The connector must reference the supplied OAuth configuration, never anonymous auth.")
     decoded = base64.b64decode(reference_id, validate=True).decode("utf-8")
-    require(re.fullmatch(re.escape(tenant) + r"##[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", decoded) is not None,
+    require(re.fullmatch(re.escape(tenant) + r"##[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}",
+                         decoded, flags=re.IGNORECASE) is not None,
             "OAuth reference belongs to an unexpected tenant or is malformed.")
     origin = urlparse(mcp_url)
+    require(origin.scheme == "https" and bool(origin.hostname) and origin.path == "/mcp" and
+            not origin.username and not origin.password and not origin.query and not origin.fragment,
+            "MCP URL must be an absolute HTTPS /mcp endpoint without credentials, query or fragment.")
+    require(manifest["validDomains"] == [origin.hostname], "Connector domain does not match the MCP URL.")
     base = f"{origin.scheme}://{origin.netloc}"
     for field, route in (("websiteUrl", "about"), ("privacyUrl", "privacy"), ("termsOfUseUrl", "terms")):
         require(manifest["developer"][field] == f"{base}/{route}", "Publisher notice URL does not match this project.")
@@ -117,10 +152,12 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
 
     return {
         "schema": manifest["manifestVersion"],
-        "appId": manifest["id"],
+        "appId": "${PLUGIN_APP_ID}" if template else manifest["id"],
         "version": manifest["version"],
         "files": sorted(names),
-        "oauthTenantVerified": True,
+        "oauthTenantVerified": not template,
+        "template": template,
+        "importReady": not template,
         "skillName": frontmatter[1],
         "runtimeCoworkVerified": False,
     }
@@ -130,12 +167,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", required=True, type=Path)
     parser.add_argument("--schema", required=True, type=Path)
-    parser.add_argument("--tenant", required=True)
-    parser.add_argument("--mcp-url", required=True)
-    parser.add_argument("--oauth-reference", required=True)
+    parser.add_argument("--template", action="store_true")
+    parser.add_argument("--tenant")
+    parser.add_argument("--app-id")
+    parser.add_argument("--mcp-url")
+    parser.add_argument("--oauth-reference")
     args = parser.parse_args()
+    if args.template:
+        if any((args.tenant, args.app_id, args.mcp_url, args.oauth_reference)):
+            parser.error("Template validation must not receive deployment configuration.")
+    elif not all((args.tenant, args.app_id, args.mcp_url, args.oauth_reference)):
+        parser.error("Configured validation requires tenant, app-id, mcp-url and oauth-reference.")
     try:
-        report = validate(args.package, args.schema, args.tenant, args.mcp_url, args.oauth_reference)
+        report = validate(args.package, args.schema, args.tenant or "", args.mcp_url or "", args.oauth_reference or "",
+                          template=args.template, app_id=args.app_id)
     except ValidationError as error:
         print(f"Plugin schema validation failed at {'/'.join(map(str, error.absolute_path))}: {error.validator}", file=sys.stderr)
         return 1

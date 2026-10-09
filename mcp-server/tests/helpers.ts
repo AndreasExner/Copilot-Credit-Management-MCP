@@ -1,7 +1,7 @@
 import type { Config } from "../src/config.js";
 import type { Actor } from "../src/auth/validate-token.js";
 
-export const tenantId = "8052aab8-6989-451f-91b2-faa77f298324";
+export const tenantId = "11111111-1111-4111-8111-111111111111";
 export const apiId = "58bf0d30-ae9e-47ce-bf3b-2e9f294865f0";
 export const clientId = "b351df5e-45b7-455f-9e80-4c8b68bce327";
 

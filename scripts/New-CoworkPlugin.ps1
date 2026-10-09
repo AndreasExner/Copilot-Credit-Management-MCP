@@ -1,19 +1,63 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param()
+param(
+    [switch]$Template,
+    [guid]$TenantId,
+    [guid]$AppId,
+    [string]$ConfigurationPath,
+    [string]$SourcePath,
+    [string]$OutputDirectory
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $python = Join-Path $root '.azure\plugin-validator-env\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { $python = 'python' }
-$source = Join-Path $root 'cowork-plugin\appPackage'
+$source = if ($SourcePath) { (Resolve-Path -LiteralPath $SourcePath).Path } else { Join-Path $root 'cowork-plugin\appPackage' }
 $manifest = Get-Content -LiteralPath (Join-Path $source 'manifest.json') -Raw | ConvertFrom-Json -AsHashtable
-$configuration = Get-Content -LiteralPath (Join-Path $root '.azure\cowork-oauth.json') -Raw | ConvertFrom-Json -AsHashtable
-$reference = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($configuration.referenceId))
-$tenant = $reference.Split('##')[0]
-if ($tenant -ne '8052aab8-6989-451f-91b2-faa77f298324') {
-    throw 'The OAuth configuration does not belong to the approved project tenant.'
+$remote = $manifest.agentConnectors[0].toolSource.remoteMcpServer
+if ($manifest.id -cne '${PLUGIN_APP_ID}' -or $remote.mcpServerUrl -cne '${MCP_PUBLIC_URL}' -or
+    $remote.authorization.referenceId -cne '${OAUTH_REFERENCE_ID}' -or
+    $manifest.developer.websiteUrl -cne '${MCP_ORIGIN}/about' -or
+    $manifest.developer.privacyUrl -cne '${MCP_ORIGIN}/privacy' -or
+    $manifest.developer.termsOfUseUrl -cne '${MCP_ORIGIN}/terms' -or
+    $manifest.validDomains.Count -ne 1 -or $manifest.validDomains[0] -cne '${MCP_HOST}') {
+    throw 'The source manifest must be the tenant-neutral project template.'
 }
+if ($Template) {
+    if ($PSBoundParameters.ContainsKey('TenantId') -or $PSBoundParameters.ContainsKey('AppId') -or
+        $PSBoundParameters.ContainsKey('ConfigurationPath')) {
+        throw 'Template builds must not receive deployment configuration.'
+    }
+} else {
+    if (-not $TenantId -or $TenantId -eq [guid]::Empty -or -not $AppId -or $AppId -eq [guid]::Empty) {
+        throw 'Configured builds require explicit non-empty TenantId and AppId.'
+    }
+    $configurationFile = if ($ConfigurationPath) { $ConfigurationPath } else { Join-Path $root '.azure\cowork-oauth.json' }
+    $configuration = Get-Content -LiteralPath $configurationFile -Raw | ConvertFrom-Json -AsHashtable
+    $reference = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($configuration.referenceId))
+    if ($reference -notmatch '^([a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})##([a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$' -or
+        [guid]$Matches[1] -ne $TenantId -or [guid]$Matches[2] -eq [guid]::Empty -or
+        [guid]$configuration.tenantId -ne $TenantId) {
+        throw 'The OAuth configuration is malformed or does not belong to the explicitly approved tenant.'
+    }
+    $url = [uri]$configuration.mcpPublicUrl
+    if (-not $url.IsAbsoluteUri -or $url.Scheme -cne 'https' -or $url.AbsolutePath -cne '/mcp' -or
+        $url.UserInfo -or $url.Query -or $url.Fragment) {
+        throw 'MCP URL must be an absolute HTTPS /mcp endpoint without credentials, query or fragment.'
+    }
+    $origin = $url.GetLeftPart([UriPartial]::Authority)
+    $manifest.id = $AppId.ToString()
+    $remote.mcpServerUrl = $configuration.mcpPublicUrl
+    $remote.authorization.referenceId = $configuration.referenceId
+    $manifest.validDomains = @($url.DnsSafeHost)
+    foreach ($field in @(@{ name = 'websiteUrl'; route = 'about' }, @{ name = 'privacyUrl'; route = 'privacy' }, @{ name = 'termsOfUseUrl'; route = 'terms' })) {
+        $manifest.developer[$field.name] = "$origin/$($field.route)"
+    }
+}
+$manifestText = $manifest | ConvertTo-Json -Depth 30
+$cache = Join-Path $root '.azure'
+New-Item -ItemType Directory -Path $cache -Force | Out-Null
 $schema = Join-Path $root '.azure\MicrosoftTeams.v1.29.schema.json'
 if (-not (Test-Path -LiteralPath $schema)) {
     Invoke-WebRequest -Uri 'https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json' `
@@ -21,50 +65,16 @@ if (-not (Test-Path -LiteralPath $schema)) {
 }
 
 Add-Type -AssemblyName System.Drawing
-foreach ($spec in @(@{ name = 'color.png'; size = 192 }, @{ name = 'outline.png'; size = 32 })) {
-    $bitmap = [Drawing.Bitmap]::new($spec.size, $spec.size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $graphics = [Drawing.Graphics]::FromImage($bitmap)
-    $pen = [Drawing.Pen]::new([Drawing.Color]::White, [single]($spec.size / 24))
-    try {
-        $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        if ($spec.name -eq 'color.png') {
-            $graphics.Clear([Drawing.ColorTranslator]::FromHtml('#246B47'))
-        } else {
-            $graphics.Clear([Drawing.Color]::Transparent)
-        }
-        $margin = [single]($spec.size / 6)
-        $diameter = [single]($spec.size - 2 * $margin)
-        $graphics.DrawEllipse($pen, $margin, $margin, $diameter, $diameter)
-        $offset = [single]($spec.size / 3)
-        $line = [single]($spec.size / 3)
-        $graphics.DrawLine($pen, $offset, [single]($spec.size * 0.4), ($offset + $line), [single]($spec.size * 0.4))
-        $graphics.DrawLine($pen, $offset, [single]($spec.size * 0.6), ($offset + $line), [single]($spec.size * 0.6))
-        if ($spec.name -eq 'outline.png') {
-            for ($x = 0; $x -lt $bitmap.Width; $x++) {
-                for ($y = 0; $y -lt $bitmap.Height; $y++) {
-                    $pixel = $bitmap.GetPixel($x, $y)
-                    if ($pixel.A -gt 0) {
-                        $bitmap.SetPixel($x, $y, [Drawing.Color]::FromArgb($pixel.A, 255, 255, 255))
-                    }
-                }
-            }
-        }
-        $bitmap.Save((Join-Path $source $spec.name), [Drawing.Imaging.ImageFormat]::Png)
-    } finally {
-        $pen.Dispose()
-        $graphics.Dispose()
-        $bitmap.Dispose()
-    }
-}
 
 $files = @(
     'manifest.json', 'color.png', 'outline.png',
     'skills\copilot-credit-management\SKILL.md',
     'skills\copilot-credit-management\references\read-workflows.md'
 )
-$build = Join-Path $root 'cowork-plugin\build'
+$build = if ($OutputDirectory) { $OutputDirectory } else { Join-Path $root 'cowork-plugin\build' }
 New-Item -ItemType Directory -Path $build -Force | Out-Null
-$output = Join-Path $build "copilot-credit-management-$($manifest.version).zip"
+$suffix = if ($Template) { '-template' } else { '' }
+$output = Join-Path $build "copilot-credit-management-$($manifest.version)$suffix.zip"
 $temporary = "$output.$([guid]::NewGuid().ToString('N')).tmp"
 try {
     $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew)
@@ -72,9 +82,15 @@ try {
     try {
         foreach ($file in $files) {
             $entryName = $file.Replace('\', '/')
-            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-                $archive, (Join-Path $source $file), $entryName, [IO.Compression.CompressionLevel]::Optimal
-            ) | Out-Null
+            if ($file -eq 'manifest.json') {
+                $entry = $archive.CreateEntry($entryName, [IO.Compression.CompressionLevel]::Optimal)
+                $writer = [IO.StreamWriter]::new($entry.Open(), [Text.UTF8Encoding]::new($false))
+                try { $writer.Write($manifestText) } finally { $writer.Dispose() }
+            } else {
+                [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive, (Join-Path $source $file), $entryName, [IO.Compression.CompressionLevel]::Optimal
+                ) | Out-Null
+            }
         }
     } finally {
         $archive.Dispose()
@@ -111,8 +127,14 @@ try {
     } finally {
         $inspection.Dispose()
     }
-    & $python "$PSScriptRoot\Validate-CoworkPlugin.py" --package $temporary --schema $schema `
-        --tenant $tenant --mcp-url $configuration.mcpPublicUrl --oauth-reference $configuration.referenceId
+    $validation = @("$PSScriptRoot\Validate-CoworkPlugin.py", '--package', $temporary, '--schema', $schema)
+    if ($Template) {
+        $validation += '--template'
+    } else {
+        $validation += @('--tenant', $TenantId.ToString(), '--app-id', $AppId.ToString(),
+            '--mcp-url', $configuration.mcpPublicUrl, '--oauth-reference', $configuration.referenceId)
+    }
+    & $python @validation
     if ($LASTEXITCODE -ne 0) { throw 'Cowork archive validation failed; no new import ZIP was published.' }
     Move-Item -LiteralPath $temporary -Destination $output -Force
     Get-FileHash -LiteralPath $output -Algorithm SHA256 | Select-Object Path,Hash

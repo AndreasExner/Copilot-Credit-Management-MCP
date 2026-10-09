@@ -12,6 +12,7 @@ __pycache__/
 *.pem
 *.key
 *.zip
+cowork-plugin/build/
 infra/main.json
 infra/app.json
 infra/modules/*.json
