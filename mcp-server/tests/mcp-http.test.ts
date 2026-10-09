@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/server.js";
 import { createReadServer } from "../src/tools/reads.js";
-import { GraphClient, graphBaseUrl } from "../src/graph/client.js";
+import { GraphClient, graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl } from "../src/graph/client.js";
 import { ServiceError } from "../src/errors.js";
 import { actor, config } from "./helpers.js";
 
@@ -82,6 +82,7 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "get_tenant_credit_balance", "list_spending_policies", "list_user_service_balances",
+        "list_policy_assigned_groups", "list_group_users",
       ]);
       const response = await client.callTool({ name: "get_tenant_credit_balance", arguments: {} });
       expect(response.isError).not.toBe(true);
@@ -138,6 +139,95 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
       });
       expect(invalidUser.isError).toBe(true);
       expect(fetcher.mock.calls.length).toBe(calls);
+    } finally {
+      await client.close();
+    }
+  });
+  it("reads assigned groups and user-only membership with exact scopes, caller and membership modes", async () => {
+    const client = new Client({ name: "offline-policy-roster-test", version: "1" });
+    const policyId = "opaque-policy";
+    const groupId = "bb26bfc5-2c56-4553-bd75-aa9946340b14";
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+        requestInit: { headers: { authorization: "Bearer valid-mocked-token" } },
+      }));
+      fetcher.mockResolvedValueOnce(Response.json({ value: [{ id: groupId }] }));
+      expect(await client.callTool({ name: "list_policy_assigned_groups", arguments: { policyId } }))
+        .toMatchObject({ structuredContent: { data: { value: [{ id: groupId }] } } });
+      expect(fetcher).toHaveBeenLastCalledWith(policyAssignedGroupsPageUrl(policyId), expect.objectContaining({ method: "GET" }));
+      expect(getToken).toHaveBeenLastCalledWith(actor,
+        ["https://graph.microsoft.com/CopilotCostManagement-Assignment.Read.All"], expect.any(AbortSignal));
+
+      const nextLink = `${groupUsersPageUrl(groupId, true).split("?")[0]}?$count=true&$skiptoken=A%2fb%3D`;
+      fetcher.mockResolvedValueOnce(Response.json({ value: [{ id: actor.objectId, displayName: null }], "@odata.nextLink": nextLink }));
+      expect(await client.callTool({ name: "list_group_users", arguments: { groupId } })).toMatchObject({
+        structuredContent: {
+          membershipScope: "transitive", consistencyLevel: "eventual",
+          data: { value: [{ id: actor.objectId, displayName: null }], "@odata.nextLink": nextLink },
+        },
+      });
+      expect(fetcher).toHaveBeenLastCalledWith(groupUsersPageUrl(groupId, true), expect.objectContaining({
+        headers: expect.objectContaining({ ConsistencyLevel: "eventual" }),
+      }));
+      expect(getToken).toHaveBeenLastCalledWith(actor,
+        ["https://graph.microsoft.com/GroupMember.ReadBasic.All"], expect.any(AbortSignal));
+      fetcher.mockResolvedValueOnce(Response.json({ value: [] }));
+      expect(await client.callTool({ name: "list_group_users", arguments: { groupId, nextLink } }))
+        .toMatchObject({ structuredContent: { membershipScope: "transitive", data: { value: [] } } });
+      expect(fetcher).toHaveBeenLastCalledWith(nextLink, expect.objectContaining({
+        headers: expect.objectContaining({ ConsistencyLevel: "eventual" }),
+      }));
+      fetcher.mockResolvedValueOnce(Response.json({ value: [] }));
+      expect(await client.callTool({ name: "list_group_users", arguments: { groupId, transitive: false } }))
+        .toMatchObject({ structuredContent: { membershipScope: "direct" } });
+      expect(fetcher).toHaveBeenLastCalledWith(groupUsersPageUrl(groupId, false), expect.objectContaining({ method: "GET" }));
+      const calls = fetcher.mock.calls.length;
+      for (const request of [
+        { name: "list_policy_assigned_groups", arguments: { policyId: "../users" } },
+        { name: "list_policy_assigned_groups", arguments: { policyId, nextLink: policyAssignedGroupsPageUrl("another") } },
+        { name: "list_group_users", arguments: { groupId: "invalid" } },
+        { name: "list_group_users", arguments: { groupId, transitive: false, nextLink } },
+        { name: "list_group_users", arguments: { groupId: actor.objectId, nextLink } },
+      ]) {
+        expect(await client.callTool(request)).toMatchObject({ isError: true });
+      }
+      expect(fetcher.mock.calls.length).toBe(calls);
+    } finally {
+      await client.close();
+    }
+  });
+  it.each([
+    { name: "list_policy_assigned_groups", arguments: { policyId: "opaque-policy" } },
+    { name: "list_group_users", arguments: { groupId: actor.objectId } },
+  ])("surfaces missing roster consent for $name without Graph dispatch", async (request) => {
+    getToken.mockRejectedValueOnce(new ServiceError("graph_consent_or_authentication_required",
+      "Delegated consent required.", 403));
+    const calls = fetcher.mock.calls.length;
+    const client = new Client({ name: "offline-roster-consent-test", version: "1" });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+        requestInit: { headers: { authorization: "Bearer valid-mocked-token" } },
+      }));
+      expect(await client.callTool(request)).toMatchObject({ isError: true });
+      expect(fetcher.mock.calls.length).toBe(calls);
+    } finally {
+      await client.close();
+    }
+  });
+  it.each([
+    { status: 403, code: "Authorization_RequestDenied" },
+    { status: 404, code: "Request_ResourceNotFound" },
+  ])("keeps inaccessible groups or unavailable preview endpoints as errors ($status)", async ({ status, code }) => {
+    fetcher.mockResolvedValueOnce(Response.json({ error: { code, message: "private directory information" } }, { status }));
+    const client = new Client({ name: "offline-roster-graph-error-test", version: "1" });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+        requestInit: { headers: { authorization: "Bearer valid-mocked-token" } },
+      }));
+      const response = await client.callTool({ name: "list_policy_assigned_groups", arguments: { policyId: "opaque-policy" } });
+      expect(response).toMatchObject({ isError: true });
+      expect(JSON.stringify(response)).toContain(code);
+      expect(JSON.stringify(response)).not.toContain("private directory information");
     } finally {
       await client.close();
     }

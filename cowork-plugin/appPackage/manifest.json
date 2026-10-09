@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
   "manifestVersion": "1.29",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "id": "8c6d18a4-79b1-4d67-b817-821732cc8fb6",
   "developer": {
     "name": "Copilot Credit Management",
@@ -14,8 +14,8 @@
     "full": "Copilot Credit Management for Cowork"
   },
   "description": {
-    "short": "Read tenant/user Copilot balances and spending policies as the signed-in user.",
-    "full": "Internal read-only evaluation plugin with an integrated credit-management skill and an OAuth-protected Azure-hosted MCP connector. Reads tenant credit balances, spending-policy pages and a user's per-service balance data through the signed-in caller's delegated Microsoft Graph access. Missing quantities are not inferred and pagination remains explicit. This release has three read tools; per-user data requires additional delegated UserData administrator consent. No group enumeration or write operations are enabled. New endpoint availability and the real user-data read must be verified in Cowork."
+    "short": "Read Copilot balances, spending policies and policy group users as the caller.",
+    "full": "Experimental read-only plugin with an integrated credit-management skill and an OAuth-protected Azure MCP connector. Five tools read tenant balances, spending policies, policy-assigned groups, group users and per-user service balances through delegated Microsoft Graph access. The cost-management API is Preview/beta. Roster reads require Assignment and GroupMember.ReadBasic administrator consent in addition to UserData. Membership includes nested users by default and may lag recent changes; it does not prove policy enforcement. Missing quantities remain unavailable and incomplete pagination is explicit. No write operations. Actual roster availability and authorized access must be tested in Cowork."
   },
   "icons": {
     "color": "color.png",
@@ -34,7 +34,7 @@
     {
       "id": "copilot-credit-management",
       "displayName": "Copilot Credit Management",
-      "description": "Read tenant credit balances, spending policies and a user's per-service balances using the signed-in caller's delegated Microsoft Graph access. UserData read consent is required for user balances. This connector is read-only.",
+      "description": "Read tenant/user balances, spending policies, assigned groups and group users as the signed-in caller. Policy roster requires delegated Assignment and GroupMember.ReadBasic consent; user balances require UserData. Experimental and read-only.",
       "toolSource": {
         "remoteMcpServer": {
           "mcpServerUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp",

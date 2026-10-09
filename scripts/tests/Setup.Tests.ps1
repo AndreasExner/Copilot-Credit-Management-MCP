@@ -191,6 +191,16 @@ try {
     Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-state.json" -Raw) -eq $originalConsent) 'new consent request must preserve original consent proof'
     $pendingConsent = Get-Content -LiteralPath "$testRoot\.azure\consent-userdata-state.json" -Raw | ConvertFrom-Json
     Assert-Test ($pendingConsent.requestedScopes.Count -eq 3) 'pending user-data consent must request exactly three delegated reads'
+    $originalUserData = Get-Content -LiteralPath "$testRoot\.azure\consent-userdata-state.json" -Raw
+    $rosterConsent = & "$testRoot\scripts\New-GraphConsentUrl.ps1" -McpPublicUrl $parameters.McpPublicUrl -IncludePolicyRoster
+    Assert-Test ($rosterConsent[0] -like '*CopilotCostManagement-Assignment.Read.All*') 'policy assignments require the evidenced Assignment read scope'
+    Assert-Test ($rosterConsent[0] -like '*GroupMember.ReadBasic.All*') 'membership must use the documented least-privilege read scope'
+    Assert-Test ($rosterConsent[0] -like '*CopilotCostManagement-UserData.Read.All*') 'roster includes per-user service balances'
+    Assert-Test ($rosterConsent[0] -notmatch 'ReadWrite|Directory.Read|User.Read|Member.Read.Hidden|GroupMember.Read.All') 'roster must not broaden directory or write access'
+    Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-state.json" -Raw) -eq $originalConsent) 'roster must preserve original consent proof'
+    Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-userdata-state.json" -Raw) -eq $originalUserData) 'roster must preserve earlier UserData request state'
+    $pendingRoster = Get-Content -LiteralPath "$testRoot\.azure\consent-roster-state.json" -Raw | ConvertFrom-Json
+    Assert-Test ($pendingRoster.requestedScopes.Count -eq 5) 'roster must request exactly five delegated reads'
     Assert-Test ($script:counts.grants -eq $before.grants) 'printing consent URL must not grant consent'
     $failed = $false
     $invalid = $parameters.Clone()

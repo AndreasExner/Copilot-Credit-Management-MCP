@@ -113,6 +113,14 @@ class PluginTests(unittest.TestCase):
         files[name] = files[name].replace(b"list_user_service_balances", b"unsupported_user_tool")
         self.mutated(files)
 
+    def test_missing_roster_tools_rejected(self) -> None:
+        for tool in (b"list_policy_assigned_groups", b"list_group_users"):
+            with self.subTest(tool=tool):
+                files = self.files()
+                name = "skills/copilot-credit-management/SKILL.md"
+                files[name] = files[name].replace(tool, b"unsupported_roster_tool")
+                self.mutated(files)
+
 
 if __name__ == "__main__":
     unittest.main()

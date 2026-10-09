@@ -31,9 +31,9 @@ skill and one OAuth-protected remote MCP connector.
 
 ## Verified delivery state
 
-[Import ZIP: copilot-credit-management-0.2.0.zip](build/copilot-credit-management-0.2.0.zip)
+[Import ZIP: copilot-credit-management-0.3.0.zip](build/copilot-credit-management-0.3.0.zip)
 is built and validated against the official 1.29 JSON Schema and the exact
-archive constraints. All 13 positive/negative package tests pass. This is not a
+archive constraints. All 14 positive/negative package tests pass. This is not a
 claim that Microsoft's App Validation Library or tenant publication has been
 completed. The user reports a successful Cowork read on 2026-10-08; this is
 user-reported acceptance, not an independently observed response.
@@ -45,9 +45,15 @@ notices are deployed and return HTTP 200. Health/OAuth metadata remain available
 and anonymous or invalid-token MCP requests still return 401.
 
 The original read prerequisite is now satisfied by the user's report.
-Persistence after reloading and verification of all three read tools remain
-unconfirmed. The new user-service read specifically awaits UserData consent
-and a real Cowork read. The plugin never prescribes a user account.
+The user also reports the updated user-service plugin working on 2026-10-09;
+the exact Graph response and additional grant were not independently inspected.
+Persistence after reloading and the new policy roster reads remain unconfirmed.
+The roster requires additional administrator review and an actual Cowork test.
+The plugin never prescribes a user account.
+
+Observed version discrepancy to revisit: Cowork displayed 2.0.0 for the prior
+ZIP whose manifest declares 0.2.0. The cause is unknown. The app ID and OAuth
+registration stay unchanged; 0.3.0 is the new package's actual manifest version.
 
 ## Build and validation
 
@@ -66,7 +72,7 @@ pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1
 Run from the workspace root. The pipeline creates original project icons,
 packages only the five allowlisted files, validates the actual ZIP against
 Microsoft's official 1.29 schema and project constraints, and publishes
-`build/copilot-credit-management-0.2.0.zip` only after successful validation.
+`build/copilot-credit-management-0.3.0.zip` only after successful validation.
 The downloaded schema is cached outside the archive under `.azure`.
 
 Local `.azure` state and generated ZIPs are intentionally not committed.
@@ -87,7 +93,7 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
 
 1. In Cowork, open **Sources & Skills > Plugins** and use its plugin upload/import
    action. Import the ZIP, not the skill folder or a Skills-only archive.
-   Version 0.2.0 retains the original app ID and OAuth registration; use the
+   Version 0.3.0 retains the original app ID and OAuth registration; use the
    existing plugin's update/import workflow rather than a separate skill import.
 2. If uploading for tenant discovery, an administrator uses the organization's
    approved Microsoft 365 app-management upload workflow. This build does not
@@ -99,16 +105,19 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
    - `Zeige mein Copilot-Credit-Guthaben.`
    - `Liste alle Copilot-Ausgabenrichtlinien.`
    - `Zeige meine Copilot-Serviceguthaben und meinen Cowork-Verbrauch.`
+   - `Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand.`
 5. Verify dynamic tool discovery and an actual successful delegated Graph read.
    A successful ZIP/schema check or sign-in dialog alone is not that proof.
 6. Reload Cowork and verify that the plugin, integrated skill and connector
    remain available in a new task. Do not infer persistence from OneDrive files.
 
-This release contains `get_tenant_credit_balance`, `list_spending_policies` and
-`list_user_service_balances`. The last operation is evidenced by the newer
+This release contains `get_tenant_credit_balance`, `list_spending_policies`,
+`list_user_service_balances`, `list_policy_assigned_groups` and
+`list_group_users`. The user-service operation is evidenced by the newer
 [user-supplied public example](https://gist.github.com/joerodgers/3774e34e1075128a63a5a372e47e324f);
-actual availability and access for this tenant still require the new read test.
-The remaining eight reads and 11 mutations need current availability,
+the user reports the updated plugin working. The new assigned-groups and
+membership workflow still needs its own authorized read test.
+The remaining seven cost-management reads and 11 mutations need current availability,
 permissions/roles and request contracts. A successful read does not prove
 availability of unrelated endpoints.
 An error must remain an error; missing quantities and partial policy pages must
@@ -122,14 +131,31 @@ The additional delegated `CopilotCostManagement-UserData.Read.All` scope
 requires administrator review on the existing MCP API application. Follow the
 [consent setup](../README.md#additional-userdata-consent-and-acceptance).
 The Cowork OAuth client/reference and its `Mcp.Read offline_access` configuration
-do not change. This extension does not enumerate groups or look up email
-addresses and does not need the example's extra directory/group permissions.
+do not change. The user-service tool alone does not enumerate groups or look
+up email addresses and does not need directory/group permissions.
 
 `list_user_service_balances` uses the caller's validated object GUID when
 `userId` is omitted. A supplied target GUID changes only the read target, never
 the delegated caller. Continue pages using the same user and unchanged
 `nextLink`. Errors, omitted quantities and absent service records must not be
 presented as zero or a successful read.
+
+### Policy user tables
+
+Follow the [roster consent setup](../README.md#policy-roster-consent-and-acceptance)
+for delegated `CopilotCostManagement-Assignment.Read.All` and
+`GroupMember.ReadBasic.All` on the MCP API, in addition to the existing three
+read scopes. Consent is not automatically granted; the separate pending roster
+state preserves earlier proof. No write or application permissions are needed.
+
+The integrated Skill resolves the actual named policy, pages assigned groups,
+pages each group's user-only membership, deduplicates users by GUID and then
+reads every user's service balances sequentially. Names may be unavailable;
+keep the returned GUIDs. Nested members are included by default; direct mode
+is also available. Membership has eventual consistency and does not prove
+effective policy precedence/enforcement or policy-specific consumption.
+Incomplete pages, inaccessible/hidden groups and failed balances remain explicit
+in the report; they are not empty/zero success results.
 
 The real auth reference is stored in [the manifest](appPackage/manifest.json).
 It is an identifier, not a credential. Its encoded tenant was checked against

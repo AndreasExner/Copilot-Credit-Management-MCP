@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { GraphClient, graphBaseUrl, policyPageUrl, userServiceBalancePageUrl } from "../src/graph/client.js";
+import {
+  GraphClient, graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl,
+  policyPageUrl, userServiceBalancePageUrl,
+} from "../src/graph/client.js";
 import { RequestQueue } from "../src/graph/request-queue.js";
 import { actor, config } from "./helpers.js";
 
@@ -100,6 +103,65 @@ describe("user service balance paging", () => {
     `${path}#fragment`,
   ])("rejects cross-user, cross-resource or unsafe continuation %s", (link) => {
     expect(() => userServiceBalancePageUrl(actor.objectId, link)).toThrow();
+  });
+});
+
+describe("policy assigned group paging", () => {
+  const policyId = "Cowork-Large_opaque";
+  const path = `${graphBaseUrl}/spendingPolicies/${policyId}/microsoft.graph.selectedGroupsSpendingPolicy/assignedGroups`;
+  it("accepts a non-GUID policy ID and preserves continuation bytes", () => {
+    expect(policyAssignedGroupsPageUrl(policyId)).toBe(path);
+    const link = `${path}?$skiptoken=A%2fb%2B%3D`;
+    expect(policyAssignedGroupsPageUrl(policyId, link)).toBe(link);
+    expect(policyAssignedGroupsPageUrl("policy:returned value")).toContain("/policy%3Areturned%20value/");
+  });
+  it.each(["", ".", "..", "../users", "policy/users", "policy\\users", "id?x=1", "id#x", "\u0000id", "a".repeat(257)])(
+    "rejects unsafe policy ID %s", (id) => {
+      expect(() => policyAssignedGroupsPageUrl(id)).toThrow();
+    },
+  );
+  it.each([
+    path.replace(policyId, "another-policy"), path.replace(policyId, policyId.toLowerCase()),
+    `${graphBaseUrl}/spendingPolicies`, path.replace("assignedGroups", "assignedUsers"),
+    path.replace("https:", "http:"), path.replace("graph.microsoft.com", "attacker.test"),
+    path.replace("graph.microsoft.com", "graph.microsoft.com:444"), `${path}#fragment`,
+  ])("rejects cross-policy, cross-resource and unsafe continuation %s", (link) => {
+    expect(() => policyAssignedGroupsPageUrl(policyId, link)).toThrow();
+  });
+});
+
+describe("group user paging", () => {
+  const path = `https://graph.microsoft.com/v1.0/groups/${actor.objectId}/transitiveMembers/microsoft.graph.user`;
+  it("uses a user-only cast with the required advanced-query count and unchanged paging", () => {
+    expect(groupUsersPageUrl(actor.objectId, true)).toBe(`${path}?$count=true&$select=id,displayName,userPrincipalName`);
+    expect(groupUsersPageUrl(actor.objectId, false)).toContain("/members/microsoft.graph.user?$count=true");
+    const link = `${path}?$count=true&$skiptoken=A%2fb%2B%3D`;
+    expect(groupUsersPageUrl(actor.objectId, true, link)).toBe(link);
+    expect(groupUsersPageUrl(actor.objectId.toUpperCase(), true, link)).toBe(link);
+  });
+  it.each(["name", "../users", "name@example.test"])("rejects invalid group ID %s", (id) => {
+    expect(() => groupUsersPageUrl(id, true)).toThrow();
+  });
+  it.each([
+    path.replace(actor.objectId, "bb26bfc5-2c56-4553-bd75-aa9946340b14"),
+    path.replace("transitiveMembers", "members"), path.replace("microsoft.graph.user", "microsoft.graph.group"),
+    path.replace("v1.0", "beta"), path.replace("https:", "http:"),
+    path.replace("graph.microsoft.com", "attacker.test"), `${path}#fragment`,
+  ])("rejects another group, membership mode, type or unsafe continuation %s", (link) => {
+    expect(() => groupUsersPageUrl(actor.objectId, true, link)).toThrow();
+  });
+  it("adds eventual consistency only to the directory membership read", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ value: [{ id: actor.objectId, displayName: null }] }));
+    const token = vi.fn(async () => "mock-token");
+    const client = new GraphClient(config, token, fetcher);
+    await client.get(actor, groupUsersPageUrl(actor.objectId, true), "GroupMember.ReadBasic.All", "eventual");
+    expect(fetcher).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({
+      headers: expect.objectContaining({ ConsistencyLevel: "eventual" }),
+    }));
+    expect(token).toHaveBeenLastCalledWith(actor,
+      ["https://graph.microsoft.com/GroupMember.ReadBasic.All"], expect.any(AbortSignal));
+    await client.get(actor, `${graphBaseUrl}/spendingPolicies`, "CopilotCostManagement-Policy.Read.All");
+    expect(fetcher.mock.lastCall?.[1]?.headers).not.toHaveProperty("ConsistencyLevel");
   });
 });
 

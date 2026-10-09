@@ -27,7 +27,7 @@ resources remain unchanged; nothing was deleted.
 The approved backend authentication is now **certificate-free managed-identity
 federation**. The application is running with one healthy replica, and its
 actual managed identity successfully authenticates the dedicated MCP application.
-All 74 backend tests and 13 plugin archive tests pass. The inherited Key Vault
+Backend type-check/build, adapter/protocol tests and 14 plugin archive tests pass. The inherited Key Vault
 policy remains unchanged. Certificate setup previously failed with
 `403 ForbiddenByConnection`; the selected mode does not access that vault.
 
@@ -35,13 +35,26 @@ MCP endpoint:
 [https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp).
 This is a protected endpoint: anonymous requests correctly return 401.
 
-Release 0.2.0 implements three real MCP tools:
+Release 0.3.0 implements five real MCP tools:
 
 - `get_tenant_credit_balance`
 - `list_spending_policies`, including validated, unchanged continuation URLs
 - `list_user_service_balances`, with an optional target Entra user GUID;
   omitted means the validated signed-in caller's own service balances.
   Requires delegated `CopilotCostManagement-UserData.Read.All` consent.
+- `list_policy_assigned_groups`, using the returned opaque policy ID and the
+  selected-groups policy route. Requires delegated
+  `CopilotCostManagement-Assignment.Read.All`.
+- `list_group_users`, with a returned group GUID and explicit direct/transitive
+  mode (nested users included by default). Requires delegated
+  `GroupMember.ReadBasic.All`; uses eventual consistency and user-only results.
+
+The Skill combines these reads into a deduplicated policy user table with
+per-user Cowork service balances. It preserves paging, unavailable values and
+individual errors. A directory roster is not proof of effective policy
+precedence, enforcement or policy-specific consumption. Recent directory
+changes may lag. The new roster workflow requires administrator consent and
+actual tenant/Cowork acceptance; a successful local test does not prove either.
 
 The user reports a successful **Cowork -> MCP -> OBO -> Graph** read on
 2026-10-08. This clears the original connectivity prerequisite; the assistant
@@ -58,14 +71,17 @@ successful existing read or from the names of the planned routes.
 The user's newer [public example](https://gist.github.com/joerodgers/3774e34e1075128a63a5a372e47e324f),
 updated 2026-10-08, demonstrates the user-service-balance route with a user GUID
 and the additional delegated UserData read scope. This narrowly evidenced
-operation is now implemented and deployed; its actual tenant read still needs
-consent/role/availability acceptance. It does not prove a separate total-user
+operation is now implemented and deployed; the user also reports the updated
+plugin working on 2026-10-09. The exact Graph result and additional grant were
+not independently inspected. This does not prove a separate total-user
 balance endpoint, all other planned operations or any write contract.
-Eight additional reads and 11 mutations remain deferred.
+With the separate assigned-groups read now implemented, seven additional
+cost-management reads and 11 mutations remain deferred. Directory membership
+is supporting Graph functionality, not another cost-management operation.
 There is no write endpoint,
 anonymous MCP mode or app-only Graph fallback.
 
-The importable [Cowork plugin ZIP](cowork-plugin/build/copilot-credit-management-0.2.0.zip)
+The importable [Cowork plugin ZIP](cowork-plugin/build/copilot-credit-management-0.3.0.zip)
 includes an integrated Skill and the real OAuth token-store reference. Its
 manifest 1.29 schema, archive contents and icons were validated. See the
 [plugin import and acceptance instructions](cowork-plugin/README.md).
@@ -84,7 +100,7 @@ prove that consent has been granted.
 |---|---|
 | Resource group `rg-ccm-eval-tnx2hg` | Created |
 | Container Apps environment `cae-ccm-eval-tnx2hg` | Succeeded |
-| ACR `crccmevaltnx2hg` | Succeeded; user-service-balance image cloud-built and digest pinned |
+| ACR `crccmevaltnx2hg` | Succeeded; roster release image cloud-built and digest pinned |
 | Key Vault `kv-mcp-tnx2hg` | Created; governance disables public access |
 | Identity `id-ccm-eval-tnx2hg` | AcrPull and vault signing roles confirmed |
 | Log Analytics `log-ccm-eval-tnx2hg` | Created |
@@ -92,9 +108,9 @@ prove that consent has been granted.
 | Managed-identity federation | Configured; live application credential proof passed |
 | Container App `ca-ccm-eval-tnx2hg` | Running; revision healthy, one replica |
 | OBO certificate | Not required; none created |
-| Graph admin consent | Original two scopes verified on 2026-10-08; additional UserData review pending |
+| Graph admin consent | Original two scopes verified; updated plugin working user-reported; additional roster scopes require admin review |
 | Cowork OAuth configuration | Actual token-store ID supplied; tenant verified; successful Cowork read user-reported |
-| Cowork plugin 0.2.0 | Import ZIP built; schema and 13 archive tests passed; original 0.1.0 preserved |
+| Cowork plugin 0.3.0 | Import ZIP built; schema and 14 archive tests passed; earlier ZIPs preserved; roster acceptance pending |
 | Publisher notices | Public project/privacy/usage pages deployed and verified |
 
 API application ID: `9941ac93-e4db-4df3-9a82-fc903ff2fbaa`.
@@ -105,12 +121,13 @@ verified at 2026-10-08T16:26:12Z. No application certificate was created. No
 connector client secret was received or persisted by this implementation;
 the connector's separate credential belongs only in Microsoft's token store.
 
-The running image was built in Canada East (ACR run `cw3`, tag
-`ccm-mcp:user-balances-v1`). Its independently verified, deployed digest is
-`sha256:cff1b6bd9104b03b517c69f9ddc976c1f7432dd11c43ce4820b3bc4a3d780f6d`.
-Deployment `ccm-eval-user-balances` succeeded at 2026-10-09T05:27:22Z.
-The current revision is `ca-ccm-eval-tnx2hg--0000002`, Healthy with one replica.
-The previous notice/federation images and original certificate-backed image remain
+The running 0.3.0 image was built in Canada East (ACR run `cw4`, tag
+`ccm-mcp:policy-roster-v1`). Its independently verified, deployed digest is
+`sha256:3080a7c6818247be3db0a9b3335fcb7efa40ebd67c72d1da8f2de55040e1f88f`.
+Deployment `ccm-eval-policy-roster` succeeded at 2026-10-09T09:06:24Z.
+The current revision is `ca-ccm-eval-tnx2hg--0000003`, Healthy with one ready
+replica and `RunningAtMaxScale` at the configured maximum of one.
+The previous user-service/notice/federation images and original certificate-backed image remain
 preserved in the registry.
 
 Live verification: both health routes and OAuth metadata return 200. Anonymous
@@ -140,18 +157,58 @@ This requests the existing two reads plus UserData for the dedicated MCP API,
 not the Cowork client. It prints a URL/state only and preserves original grant
 proof in a separate pending-request file. Do not grant consent automatically.
 No write, group-membership, assignment or Graph application permission is needed
-by this implementation. Existing Cowork token-store `Mcp.Read offline_access`
+by the user-service-balance tool alone. Existing Cowork token-store `Mcp.Read offline_access`
 configuration stays unchanged.
 
 After administrator review, update the plugin, reconnect if needed, start a new
 Cowork task and request your own per-service balances or Cowork consumption.
 Omit `userId` for yourself; another user requires a supplied Entra object GUID,
 not an email/name lookup. User roles and tenant endpoint availability still
-apply. No live UserData result is claimed before that test.
+apply. The user reports the updated plugin working; no independently observed
+UserData payload or additional grant is claimed.
 
 The operator's consent metadata recheck on 2026-10-09 required interactive
 Graph authentication after a CAE policy change; existing ARM access was usable.
 No login reset or unrelated-account fallback was attempted.
+
+### Policy roster consent and acceptance
+
+The complete policy -> assigned groups -> group users -> service balances
+workflow adds two delegated reads to the MCP API: 
+`CopilotCostManagement-Assignment.Read.All` and `GroupMember.ReadBasic.All`.
+Generate a review URL for the five read scopes:
+
+```powershell
+pwsh -NoProfile -File .\scripts\New-GraphConsentUrl.ps1 `
+  -McpPublicUrl 'https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp' `
+  -IncludePolicyRoster
+```
+
+The script does not grant consent or modify registrations. It preserves
+original and UserData state in a separate `consent-roster-state.json` request.
+Review as an authorized administrator. The Cowork OAuth client, token-store
+reference and `Mcp.Read offline_access` do not change. No broader directory,
+hidden-membership, application or write permissions are requested.
+
+Update/import plugin 0.3.0, start a new Cowork task and request:
+`Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand`.
+The Skill pages every collection, retains source groups, deduplicates user
+GUIDs and reads each user's Cowork records sequentially. Returned names/UPNs
+may be unavailable under least-privilege access; GUIDs remain usable.
+Hidden or inaccessible groups and failed user reads must be reported explicitly.
+User roles, tenant API availability and eligibility still apply.
+
+Membership uses the official
+[transitive members](https://learn.microsoft.com/en-us/graph/api/group-list-transitivemembers?view=graph-rest-1.0)
+and [direct members](https://learn.microsoft.com/en-us/graph/api/group-list-members?view=graph-rest-1.0)
+endpoints with user-only cast, `$count=true` and `ConsistencyLevel: eventual`.
+Transitive mode includes nested users but does not prove which spending policy
+effectively applies to them. State this mode and possible indexing lag.
+The per-user balances are service data, not policy-specific financial totals.
+
+Remembered Cowork UI discrepancy: the prior 0.2.0 manifest was displayed as
+2.0.0 in Cowork. Cause unknown; do not infer the package version from that UI or
+change stable app/OAuth IDs to conceal it.
 
 #### Central US: preserved first attempt
 

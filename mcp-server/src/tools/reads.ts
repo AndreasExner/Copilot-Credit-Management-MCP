@@ -1,11 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Actor } from "../auth/validate-token.js";
-import { graphBaseUrl, policyPageUrl, userServiceBalancePageUrl, type GraphClient } from "../graph/client.js";
+import {
+  graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl, policyPageUrl,
+  userServiceBalancePageUrl, type GraphClient,
+} from "../graph/client.js";
 import { safeError } from "../errors.js";
 
 export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
-  const server = new McpServer({ name: "copilot-credit-management", version: "0.2.0" });
+  const server = new McpServer({ name: "copilot-credit-management", version: "0.3.0" });
   const readAnnotations = {
     readOnlyHint: true,
     destructiveHint: false,
@@ -55,6 +58,44 @@ export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
       const result = await graph.get(actor, userServiceBalancePageUrl(userId ?? actor.objectId, nextLink),
         "CopilotCostManagement-UserData.Read.All");
       return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: { ...result } };
+    } catch (error) {
+      const failure = safeError(error).toJSON();
+      return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };
+    }
+  });
+
+  server.registerTool("list_policy_assigned_groups", {
+    description: "Read one page of groups assigned to a selected-groups spending policy. Use the policy ID returned by list_spending_policies, not its display name. Requires delegated CopilotCostManagement-Assignment.Read.All. This returns groups, not user membership; unsupported policy types or unavailable endpoints remain errors.",
+    inputSchema: {
+      policyId: z.string().min(1).max(256).describe("Exact spending-policy identifier returned by list_spending_policies; not assumed to be a GUID."),
+      nextLink: z.string().max(16000).optional().describe("The unchanged @odata.nextLink for this same policy's assigned groups, omitted for the first page."),
+    },
+    annotations: readAnnotations,
+  }, async ({ policyId, nextLink }) => {
+    try {
+      const result = await graph.get(actor, policyAssignedGroupsPageUrl(policyId, nextLink),
+        "CopilotCostManagement-Assignment.Read.All");
+      return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: { ...result } };
+    } catch (error) {
+      const failure = safeError(error).toJSON();
+      return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };
+    }
+  });
+
+  server.registerTool("list_group_users", {
+    description: "Read one page of users in an assigned Entra group. Defaults to transitive membership (includes nested groups); set transitive false for direct users only. Requires delegated GroupMember.ReadBasic.All. Uses an eventual-consistency index: recent membership changes may lag. Names/UPNs may be unavailable; retain user GUIDs. Hidden membership requires separate authorization, not requested automatically. This directory roster does not prove spending-policy enforcement or policy-specific consumption.",
+    inputSchema: {
+      groupId: z.string().uuid().describe("Entra object GUID returned by list_policy_assigned_groups."),
+      transitive: z.boolean().optional().describe("Defaults to true to include users in nested groups. False lists direct users only. Keep the same value while paging."),
+      nextLink: z.string().max(16000).optional().describe("The unchanged @odata.nextLink for this same group and membership mode, omitted for the first page."),
+    },
+    annotations: readAnnotations,
+  }, async ({ groupId, transitive = true, nextLink }) => {
+    try {
+      const result = await graph.get(actor, groupUsersPageUrl(groupId, transitive, nextLink),
+        "GroupMember.ReadBasic.All", "eventual");
+      const output = { ...result, membershipScope: transitive ? "transitive" : "direct", consistencyLevel: "eventual" };
+      return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
     } catch (error) {
       const failure = safeError(error).toJSON();
       return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };

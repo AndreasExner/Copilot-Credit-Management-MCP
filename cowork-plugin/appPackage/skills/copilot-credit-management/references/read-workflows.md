@@ -27,7 +27,8 @@ from an unavailable or failed response.
 Summarize each policy using fields that actually exist, such as its returned
 identifier, display name, status, period, limits or assignments. A field's
 absence does not prove an unlimited budget, an unassigned policy or zero usage.
-No other policy-read or write tools are available in this evaluation release.
+Assigned groups are available through the separate read below, not inferred
+from omitted policy fields. No write tools are available.
 
 ## User service balances
 
@@ -52,7 +53,63 @@ Mark partial results incomplete if paging fails.
 The endpoint example names the delegated `CopilotCostManagement-UserData.Read.All`
 scope. The previously approved two tenant/policy read scopes do not imply this
 additional consent. Consent errors, roles and endpoint availability must remain
-explicit errors. No group enumeration or directory lookup is implemented.
+explicit errors. UserData alone does not authorize the roster reads below.
+
+## Policy user table
+
+For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
+
+1. Page `list_spending_policies` completely to resolve the actual requested
+   policy by its returned name and ID. If multiple policies match, clarify the
+   target; never guess an ID or treat the name as an identifier. Keep limits
+   separate from actual user balances.
+2. Call `list_policy_assigned_groups` with that exact `policyId`. Follow every
+   returned `@odata.nextLink` unchanged for the same policy. The type-cast route
+   applies to selected-groups policies, not all policy types. A failure or
+   unsupported policy type is not evidence of no assignments.
+3. For each distinct assigned group GUID, page `list_group_users` sequentially.
+   Use `transitive: true` by default for all nested user members, or false when
+   the user explicitly asks for direct members. Keep mode and group fixed
+   while following each next link. This is a directory-membership roster:
+   nested membership does not establish effective policy targeting, precedence
+   among multiple policies or enforcement. Membership uses an eventual index
+   and may lag recent changes.
+4. Deduplicate users by returned GUID across pages and groups while retaining
+   all their source group IDs/names. Names and principal names may be null or
+   unavailable with least-privilege access: use the GUID rather than inventing
+   a name or requesting a wider directory permission.
+5. For each distinct user, call `list_user_service_balances` sequentially using
+   that GUID as `userId`; follow all its pages. Display only actually returned
+   `serviceId: cowork` records. Preserve units/periods and explicit zero; use
+   separate rows for incompatible periods/units or multiple Cowork records.
+   A failed read or absent Cowork record remains unavailable, not zero.
+6. Produce a table using fields actually returned: user name/UPN if available,
+   user GUID, source groups, service/period/unit, consumed quantity, remaining
+   quantity and read status/observation time. Omit or mark unavailable fields
+   rather than fabricating values. Do not calculate remaining credits from
+   purchased minus consumed quantities.
+7. State the policy ID, membership mode, number of distinct groups/users read
+   and completeness of assignments, membership and balances separately.
+   Keep users with balance errors in the table, with safe error codes when
+   available. List failed groups separately because their missing users cannot
+   be enumerated. Report all pending continuation pages. Detect repeated next
+   links and stop with an explicit incomplete result rather than looping.
+   For throttling/timeouts, honor Retry-After and do not automatically retry.
+
+This table shows the current returned per-user service data for the directory
+roster, not a policy-specific financial statement, effective policy assignment
+proof or an atomic snapshot. Server timestamps are observation times; do not
+invent a shared service timestamp. An empty successful assigned-group page
+after complete paging means no groups were returned, not zero tenant usage.
+If the necessary tools are not discovered, explain the missing capability and
+updated-plugin requirement; never bypass the connector.
+
+Additional roster prerequisites are delegated
+`CopilotCostManagement-Assignment.Read.All` and `GroupMember.ReadBasic.All`
+on the MCP app, in addition to UserData for balances. Signed-in-user directory
+roles, tenant eligibility and endpoint availability remain separate. Hidden
+membership may require separate authorization; disclose incompleteness and
+do not request `Member.Read.Hidden` or a broader permission automatically.
 
 ## Suggested user requests
 
@@ -60,6 +117,7 @@ explicit errors. No group enumeration or directory lookup is implemented.
 - "Liste alle Copilot-Ausgabenrichtlinien."
 - "Erstelle eine Uebersicht aus Guthaben und Ausgabenrichtlinien."
 - "Zeige meine Copilot-Serviceguthaben und meinen Cowork-Verbrauch."
+- "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand."
 
 These are read requests. A report should state the current caller/tenant
 context only when safely supplied by the runtime, not from a preset account.

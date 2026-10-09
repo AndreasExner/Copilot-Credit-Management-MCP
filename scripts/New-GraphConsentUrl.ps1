@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][uri]$McpPublicUrl,
-    [switch]$IncludeUserServiceBalances
+    [switch]$IncludeUserServiceBalances,
+    [switch]$IncludePolicyRoster
 )
 . "$PSScriptRoot\Azure-Helpers.ps1"
 if ($McpPublicUrl.Scheme -ne 'https' -or $McpPublicUrl.AbsolutePath -ne '/mcp' -or
@@ -17,8 +18,14 @@ $scopes = @(
     'https://graph.microsoft.com/CopilotCostManagement.Read.All'
     'https://graph.microsoft.com/CopilotCostManagement-Policy.Read.All'
 )
-if ($IncludeUserServiceBalances) {
+if ($IncludeUserServiceBalances -or $IncludePolicyRoster) {
     $scopes += 'https://graph.microsoft.com/CopilotCostManagement-UserData.Read.All'
+}
+if ($IncludePolicyRoster) {
+    $scopes += @(
+        'https://graph.microsoft.com/CopilotCostManagement-Assignment.Read.All'
+        'https://graph.microsoft.com/GroupMember.ReadBasic.All'
+    )
 }
 $parameters = [ordered]@{
     client_id = $identity.api.clientId
@@ -29,7 +36,9 @@ $parameters = [ordered]@{
 $query = ($parameters.GetEnumerator() | ForEach-Object {
     $_.Key + '=' + [uri]::EscapeDataString([string]$_.Value)
 }) -join '&'
-$stateFile = if ($IncludeUserServiceBalances) { 'consent-userdata-state.json' } else { 'consent-state.json' }
+$stateFile = if ($IncludePolicyRoster) { 'consent-roster-state.json' }
+    elseif ($IncludeUserServiceBalances) { 'consent-userdata-state.json' }
+    else { 'consent-state.json' }
 Save-ProjectState -Path (Join-Path $root ".azure\$stateFile") -State @{
     expectedState = $state
     tenantId = $identity.tenantId

@@ -101,6 +101,8 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
     tools = ["get_tenant_credit_balance", "list_spending_policies"]
     if manifest["version"] != "0.1.0":
         tools.append("list_user_service_balances")
+    if tuple(map(int, manifest["version"].split("."))) >= (0, 3, 0):
+        tools.extend(["list_policy_assigned_groups", "list_group_users"])
     for tool in tools:
         require(tool in skill, "The skill must describe every read tool in this release.")
 

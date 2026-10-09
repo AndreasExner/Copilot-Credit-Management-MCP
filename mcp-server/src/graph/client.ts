@@ -6,6 +6,7 @@ import { RequestQueue } from "./request-queue.js";
 
 export const graphBaseUrl = "https://graph.microsoft.com/beta/copilot/costManagement";
 const maximumResponseBytes = 1024 * 1024;
+const objectGuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export interface GraphResult {
   data: unknown;
@@ -13,7 +14,7 @@ export interface GraphResult {
   timestamp: string;
 }
 
-function readPageUrl(path: string, nextLink: string | undefined, policies: boolean): string {
+function readPageUrl(path: string, nextLink: string | undefined, policies: boolean, caseInsensitive = !policies): string {
   if (!nextLink) return `https://graph.microsoft.com${path}`;
   let url;
   try {
@@ -28,11 +29,11 @@ function readPageUrl(path: string, nextLink: string | undefined, policies: boole
     url.username ||
     url.password ||
     url.hash ||
-    (url.pathname !== path && (policies || url.pathname.toLowerCase() !== path.toLowerCase()))
+    (url.pathname !== path && (!caseInsensitive || url.pathname.toLowerCase() !== path.toLowerCase()))
   ) {
     throw new ServiceError("invalid_next_link", policies
       ? "Only Graph policy continuation URLs are accepted."
-      : "Only Graph service-balance continuation URLs for the requested user are accepted.", 400);
+      : "Only Graph continuation URLs for the requested resource are accepted.", 400);
   }
   if (policies && url.searchParams.has("$top")) {
     throw new ServiceError("unsupported_query", "$top is not supported by policy lists.", 400);
@@ -45,10 +46,29 @@ export function policyPageUrl(nextLink?: string): string {
 }
 
 export function userServiceBalancePageUrl(userId: string, nextLink?: string): string {
-  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(userId)) {
+  if (!objectGuid.test(userId)) {
     throw new ServiceError("invalid_user_id", "An Entra user object GUID is required, not a name or email address.", 400);
   }
   return readPageUrl(`/beta/copilot/costManagement/userBalances/${userId}/serviceBalances`, nextLink, false);
+}
+
+export function policyAssignedGroupsPageUrl(policyId: string, nextLink?: string): string {
+  if (!policyId || policyId.length > 256 || /[\u0000-\u001f\u007f/\\?#]/.test(policyId) ||
+      policyId === "." || policyId === "..") {
+    throw new ServiceError("invalid_policy_id", "Use the policy identifier returned by the spending-policy list.", 400);
+  }
+  const path = `/beta/copilot/costManagement/spendingPolicies/${encodeURIComponent(policyId)}` +
+    "/microsoft.graph.selectedGroupsSpendingPolicy/assignedGroups";
+  return readPageUrl(path, nextLink, false, false);
+}
+
+export function groupUsersPageUrl(groupId: string, transitive: boolean, nextLink?: string): string {
+  if (!objectGuid.test(groupId)) {
+    throw new ServiceError("invalid_group_id", "An Entra group object GUID is required.", 400);
+  }
+  const path = `/v1.0/groups/${groupId}/${transitive ? "transitiveMembers" : "members"}/microsoft.graph.user`;
+  const url = readPageUrl(path, nextLink, false);
+  return nextLink ? url : `${url}?$count=true&$select=id,displayName,userPrincipalName`;
 }
 
 function retryAfterSeconds(header: string | null): number | undefined {
@@ -105,7 +125,7 @@ export class GraphClient {
     this.queue = new RequestQueue(config.graphMinIntervalMs, config.graphMaxQueue);
   }
 
-  async get(actor: Actor, uri: string, scope: string): Promise<GraphResult> {
+  async get(actor: Actor, uri: string, scope: string, consistencyLevel?: "eventual"): Promise<GraphResult> {
     const deadline = Date.now() + this.config.graphTimeoutMs;
     const signal = AbortSignal.timeout(this.config.graphTimeoutMs);
     return this.queue.run(async () => {
@@ -117,7 +137,10 @@ export class GraphClient {
         const response = await this.fetcher(uri, {
           method: "GET",
           redirect: "error",
-          headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+          headers: {
+            authorization: `Bearer ${token}`, accept: "application/json",
+            ...(consistencyLevel ? { ConsistencyLevel: consistencyLevel } : {}),
+          },
           signal,
         });
         const data = await readJson(response);
