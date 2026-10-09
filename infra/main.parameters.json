@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION}" },
+    "operatorObjectId": { "value": "${AZURE_OPERATOR_OBJECT_ID}" },
+    "backendImage": { "value": "${MCP_IMAGE=}" },
+    "apiClientId": { "value": "${MCP_API_CLIENT_ID=}" },
+    "connectorClientId": { "value": "${MCP_CONNECTOR_CLIENT_ID=}" },
+    "oboAuthMode": { "value": "${OBO_AUTH_MODE=certificate}" },
+    "signingKeyId": { "value": "${OBO_KEY_ID=}" },
+    "certificateThumbprint": { "value": "${OBO_CERTIFICATE_THUMBPRINT=}" }
+  }
+}

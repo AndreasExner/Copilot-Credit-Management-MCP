@@ -1,0 +1,9 @@
+node_modules
+dist
+tests
+coverage
+.env
+.env.*
+*.pem
+*.key
+*.pfx

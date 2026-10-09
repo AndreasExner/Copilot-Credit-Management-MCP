@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.azure/*
+/Copilot Consumption API.md
+__pycache__/
+*.pyc
+*.pfx
+*.pem
+*.key
+*.zip
+infra/main.json
+infra/app.json
+infra/modules/*.json

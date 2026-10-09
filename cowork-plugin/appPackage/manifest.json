@@ -1,0 +1,49 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.29",
+  "version": "0.2.0",
+  "id": "8c6d18a4-79b1-4d67-b817-821732cc8fb6",
+  "developer": {
+    "name": "Copilot Credit Management",
+    "websiteUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/about",
+    "privacyUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/privacy",
+    "termsOfUseUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/terms"
+  },
+  "name": {
+    "short": "Copilot Credit Management",
+    "full": "Copilot Credit Management for Cowork"
+  },
+  "description": {
+    "short": "Read tenant/user Copilot balances and spending policies as the signed-in user.",
+    "full": "Internal read-only evaluation plugin with an integrated credit-management skill and an OAuth-protected Azure-hosted MCP connector. Reads tenant credit balances, spending-policy pages and a user's per-service balance data through the signed-in caller's delegated Microsoft Graph access. Missing quantities are not inferred and pagination remains explicit. This release has three read tools; per-user data requires additional delegated UserData administrator consent. No group enumeration or write operations are enabled. New endpoint availability and the real user-data read must be verified in Cowork."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#246B47",
+  "validDomains": [
+    "ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io"
+  ],
+  "agentSkills": [
+    {
+      "folder": "./skills/copilot-credit-management"
+    }
+  ],
+  "agentConnectors": [
+    {
+      "id": "copilot-credit-management",
+      "displayName": "Copilot Credit Management",
+      "description": "Read tenant credit balances, spending policies and a user's per-service balances using the signed-in caller's delegated Microsoft Graph access. UserData read consent is required for user balances. This connector is read-only.",
+      "toolSource": {
+        "remoteMcpServer": {
+          "mcpServerUrl": "https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp",
+          "authorization": {
+            "type": "OAuthPluginVault",
+            "referenceId": "ODA1MmFhYjgtNjk4OS00NTFmLTkxYjItZmFhNzdmMjk4MzI0IyMwZDgzNjc0NS1lODM3LTQ1ZjItODk0Ny02ZGZmMTVjZDQ2NDE="
+          }
+        }
+      }
+    }
+  ]
+}

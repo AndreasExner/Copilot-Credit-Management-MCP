@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: copilot-credit-management-mcp
+services:
+  mcp:
+    project: .\mcp-server
+    language: ts
+    host: containerapp
+    docker:
+      path: .\Dockerfile
+      context: .
+      remoteBuild: true
