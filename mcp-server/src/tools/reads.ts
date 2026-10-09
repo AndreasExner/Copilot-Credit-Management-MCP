@@ -3,12 +3,12 @@ import { z } from "zod";
 import type { Actor } from "../auth/validate-token.js";
 import {
   graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl, policyPageUrl,
-  userServiceBalancePageUrl, type GraphClient,
+  userBasicProfileUrl, userServiceBalancePageUrl, validateUserBasicProfile, type GraphClient,
 } from "../graph/client.js";
 import { safeError } from "../errors.js";
 
 export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
-  const server = new McpServer({ name: "copilot-credit-management", version: "0.3.0" });
+  const server = new McpServer({ name: "copilot-credit-management", version: "0.4.0" });
   const readAnnotations = {
     readOnlyHint: true,
     destructiveHint: false,
@@ -95,6 +95,29 @@ export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
       const result = await graph.get(actor, groupUsersPageUrl(groupId, transitive, nextLink),
         "GroupMember.ReadBasic.All", "eventual");
       const output = { ...result, membershipScope: transitive ? "transitive" : "direct", consistencyLevel: "eventual" };
+      return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
+    } catch (error) {
+      const failure = safeError(error).toJSON();
+      return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };
+    }
+  });
+
+  server.registerTool("get_user_basic_profile", {
+    description: "Read an authorized user's basic profile by Entra object GUID as the signed-in caller. Selects only id, displayName and userPrincipalName; requires delegated User.ReadBasic.All consent according to tenant policy. Use once per deduplicated group user whose name/UPN is missing. Complete, partial and unavailable name resolution are explicit; null or absent fields are not invented. Does not change group/balance permissions or resolve email addresses to IDs.",
+    inputSchema: {
+      userId: z.string().uuid().describe("Entra user object GUID supplied by the user or returned by list_group_users; never a display name or email address."),
+    },
+    annotations: readAnnotations,
+  }, async ({ userId }) => {
+    try {
+      const result = await graph.get(actor, userBasicProfileUrl(userId), "User.ReadBasic.All");
+      const data = validateUserBasicProfile(result.data, userId);
+      const availableNames = [data.displayName, data.userPrincipalName]
+        .filter((value) => typeof value === "string" && value.trim().length > 0).length;
+      const output = {
+        ...result, data,
+        nameResolutionStatus: availableNames === 2 ? "complete" : availableNames === 1 ? "partial" : "unavailable",
+      };
       return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
     } catch (error) {
       const failure = safeError(error).toJSON();

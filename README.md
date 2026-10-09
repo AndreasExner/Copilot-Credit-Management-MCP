@@ -27,7 +27,8 @@ resources remain unchanged; nothing was deleted.
 The approved backend authentication is now **certificate-free managed-identity
 federation**. The application is running with one healthy replica, and its
 actual managed identity successfully authenticates the dedicated MCP application.
-Backend type-check/build, adapter/protocol tests and 14 plugin archive tests pass. The inherited Key Vault
+Backend adapter/protocol tests and 16 plugin archive tests cover the locally
+prepared profile release described below. The inherited Key Vault
 policy remains unchanged. Certificate setup previously failed with
 `403 ForbiddenByConnection`; the selected mode does not access that vault.
 
@@ -35,7 +36,7 @@ MCP endpoint:
 [https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp).
 This is a protected endpoint: anonymous requests correctly return 401.
 
-Release 0.3.0 implements five real MCP tools:
+The deployed release 0.3.0 implements five real MCP tools:
 
 - `get_tenant_credit_balance`
 - `list_spending_policies`, including validated, unchanged continuation URLs
@@ -48,6 +49,49 @@ Release 0.3.0 implements five real MCP tools:
 - `list_group_users`, with a returned group GUID and explicit direct/transitive
   mode (nested users included by default). Requires delegated
   `GroupMember.ReadBasic.All`; uses eventual consistency and user-only results.
+
+### Prepared release 0.4.0: missing user names
+
+Local source and the
+[prepared plugin ZIP](cowork-plugin/build/copilot-credit-management-0.4.0.zip)
+add a sixth read-only tool, `get_user_basic_profile`. **It is not deployed yet.**
+Importing the new ZIP alone cannot add that tool to the existing backend.
+Deployment requires separate authorization and Azure validation.
+
+The membership read selects names but only requests membership permission.
+Graph can therefore return member GUIDs with null profile properties. The new
+tool uses a required user GUID and delegated `User.ReadBasic.All` to read only
+`id`, `displayName` and `userPrincipalName` from Graph v1.0. It checks the
+returned ID, preserves missing/null/empty fields and reports name resolution
+as complete, partial or unavailable. It does not expand the existing group
+or balance scopes or resolve an email address into an object ID.
+
+The Skill deduplicates users before resolving missing names/UPNs once per user.
+It retains already returned fields and source provenance, discloses conflicting
+values and continues balance reads after a profile error. GUIDs and separate
+profile/balance statuses remain in the table. A UPN is not necessarily email.
+Local tests cover GUID-only membership followed by a matching named profile,
+caller isolation, unavailable profiles and subsequent balance reads; these
+are not proof of real Cowork name resolution.
+
+After an authorized matching-backend deployment, prepare consent review with:
+
+```powershell
+pwsh -NoProfile -File .\scripts\New-GraphConsentUrl.ps1 `
+  -McpPublicUrl 'https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/mcp' `
+  -IncludePolicyRoster -IncludeUserProfiles
+```
+
+This requests the current five read scopes plus `User.ReadBasic.All` on the
+MCP API, not the Cowork OAuth client, and preserves earlier request/proof files
+in a separate `consent-profiles-state.json`. The default two-scope and optional
+UserData/roster requests are unchanged. The delegated basic-profile permission
+does not inherently require admin consent, but tenant policies may require it.
+Review organizational requirements; no grant or sign-in reset is automatic.
+See the official [permission reference](https://learn.microsoft.com/en-us/graph/permissions-reference#userreadbasicall)
+and [limited member information](https://learn.microsoft.com/en-us/graph/api/group-list-transitivemembers?view=graph-rest-1.0).
+
+### Policy table behavior
 
 The Skill combines these reads into a deduplicated policy user table with
 per-user Cowork service balances. It preserves paging, unavailable values and
@@ -206,9 +250,57 @@ Transitive mode includes nested users but does not prove which spending policy
 effectively applies to them. State this mode and possible indexing lag.
 The per-user balances are service data, not policy-specific financial totals.
 
-Remembered Cowork UI discrepancy: the prior 0.2.0 manifest was displayed as
-2.0.0 in Cowork. Cause unknown; do not infer the package version from that UI or
-change stable app/OAuth IDs to conceal it.
+Remembered Cowork UI discrepancy: 0.2.0 was observed as 2.0.0; the user also
+reports 0.3.0 displayed as 3.0.0. Cause unknown; no display version for 0.4.0
+has been verified. Use the actual manifest version and do not change stable
+app/OAuth IDs or apply a speculative version workaround.
+
+### Write-operation feasibility
+
+MCP can expose write tools in principle; this server, adapter and Skill remain
+read-only. Neither plugin import, administrator consent nor a user's
+confirmation creates a missing write tool. Actual Cowork mutation support and
+tenant governance must be checked separately from backend/API support.
+
+The public example names two candidate delegated write scopes:
+`CopilotCostManagement-Policy.ReadWrite.All` (P) and
+`CopilotCostManagement-Assignment.ReadWrite.All` (A).
+These names are evidence for review, not a complete operation-specific
+permission/role contract or proof that writes work in this tenant.
+
+Assessment of all eleven mutations:
+
+| Operation | Candidate scope evidence | Contract / authorization status | Read-back capability needed |
+| --- | --- | --- | --- |
+| Create policy | P, public example only | Current creation schema, identifiers, role and tenant availability unverified | Created policy detail |
+| Update policy | P, public example only | Writable fields, patch/concurrency semantics, role and tenant availability unverified | Policy detail and requested field changes |
+| Delete policy | P, public example only | Deletion effects, preconditions, role and tenant availability unverified | Authorized policy inventory/detail absence |
+| Assign group | A, public example only | Reference payload, targeting constraints, role and tenant availability unverified | Complete assigned-group list |
+| Remove group | A, public example only | Relationship deletion contract, role and tenant availability unverified | Complete assigned-group list |
+| Add service settings | No verified per-operation scope mapping | Body schema, service identifiers, role and tenant availability unverified | Policy service settings |
+| Update service settings | No verified per-operation scope mapping | Writable fields, patch semantics, role and tenant availability unverified | Policy service settings |
+| Update email thresholds | No verified per-operation scope mapping | Threshold schema, validation, role and tenant availability unverified | Policy notification settings |
+| Remove email thresholds | No verified per-operation scope mapping | Removal effects, role and tenant availability unverified | Policy notification settings |
+| Add notification recipient | No verified per-operation scope mapping | Reference payload, recipient constraints, role and tenant availability unverified | Complete recipient list |
+| Remove notification recipient | No verified per-operation scope mapping | Relationship removal contract, role and tenant availability unverified | Complete recipient list |
+
+**None is implementation-ready on the verified evidence currently available.**
+This means prerequisites are unresolved, not that Graph necessarily rejects
+all writes. The confidential historical guide is not a current write contract,
+and successful reads do not demonstrate write availability. Most required
+detail/settings/recipient read-back tools are also not implemented; assigned
+groups are available, but that alone does not complete the write contract.
+No mutation was executed as a discovery probe, and no write consent is prepared.
+
+A later, separately approved write plan must establish exact current
+methods/paths/identifier constraints, typed request/response contracts,
+per-operation delegated scopes and signed-in-user roles, error/concurrency
+behavior and authorized read-back. Do not substitute arbitrary JSON or a
+read-only role for these prerequisites. It must also include explicit
+change previews and user confirmation, actor-bound expiring single-use
+proposals, replay/concurrency protection, read-back verification and explicit
+unknown-outcome handling without blind mutation retries. Read-only annotations
+are not an authorization boundary; writes need enforced authorization.
 
 #### Central US: preserved first attempt
 

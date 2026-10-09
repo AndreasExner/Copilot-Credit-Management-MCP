@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   GraphClient, graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl,
-  policyPageUrl, userServiceBalancePageUrl,
+  policyPageUrl, userBasicProfileUrl, userServiceBalancePageUrl, validateUserBasicProfile,
 } from "../src/graph/client.js";
 import { RequestQueue } from "../src/graph/request-queue.js";
 import { actor, config } from "./helpers.js";
@@ -162,6 +162,39 @@ describe("group user paging", () => {
       ["https://graph.microsoft.com/GroupMember.ReadBasic.All"], expect.any(AbortSignal));
     await client.get(actor, `${graphBaseUrl}/spendingPolicies`, "CopilotCostManagement-Policy.Read.All");
     expect(fetcher.mock.lastCall?.[1]?.headers).not.toHaveProperty("ConsistencyLevel");
+  });
+});
+
+describe("basic user profile reads", () => {
+  it("constructs a GUID-only v1.0 read selecting exactly the needed profile fields", () => {
+    expect(userBasicProfileUrl(actor.objectId)).toBe(
+      `https://graph.microsoft.com/v1.0/users/${actor.objectId}?$select=id,displayName,userPrincipalName`,
+    );
+  });
+  it.each(["", "me", "../users", "name@example.test", `${actor.objectId}?$select=mail`, `${actor.objectId}/manager`])(
+    "rejects an invalid or injected profile identifier %s", (id) => {
+      expect(() => userBasicProfileUrl(id)).toThrow();
+    },
+  );
+  it("accepts matching GUIDs case-insensitively and returns only selected fields", () => {
+    const data = { id: actor.objectId.toUpperCase(), displayName: "Test User", userPrincipalName: "test-user@example.test", mail: "not-selected@example.test" };
+    expect(validateUserBasicProfile(data, actor.objectId)).toEqual({
+      id: data.id, displayName: data.displayName, userPrincipalName: data.userPrincipalName,
+    });
+  });
+  it("preserves missing, null and empty fields instead of generating names", () => {
+    expect(validateUserBasicProfile({ id: actor.objectId }, actor.objectId)).toEqual({ id: actor.objectId });
+    expect(validateUserBasicProfile({ id: actor.objectId, displayName: null, userPrincipalName: "" }, actor.objectId))
+      .toEqual({ id: actor.objectId, displayName: null, userPrincipalName: "" });
+  });
+  it.each([
+    null, [], {}, { value: [{ id: actor.objectId }] }, { id: "invalid" },
+    { id: "bb26bfc5-2c56-4553-bd75-aa9946340b14", displayName: "Different User" },
+    { id: actor.objectId, displayName: 42 }, { id: actor.objectId, userPrincipalName: ["invalid"] },
+  ])("rejects malformed or cross-user data without returning a fabricated profile", (data) => {
+    expect(() => validateUserBasicProfile(data, actor.objectId)).toThrow(expect.objectContaining({
+      code: "invalid_graph_profile", status: 502,
+    }));
   });
 });
 

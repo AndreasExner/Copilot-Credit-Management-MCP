@@ -55,6 +55,25 @@ scope. The previously approved two tenant/policy read scopes do not imply this
 additional consent. Consent errors, roles and endpoint availability must remain
 explicit errors. UserData alone does not authorize the roster reads below.
 
+## Basic user profiles
+
+Call `get_user_basic_profile` with a supplied or discovered Entra user GUID as
+required `userId`. It reads basic profile fields using delegated
+`User.ReadBasic.All`; the group-membership permission alone may return only
+member GUIDs and null properties. Selecting fields does not grant access.
+
+The result's `data` contains only the returned id, displayName and
+userPrincipalName. `nameResolutionStatus` is complete when both name fields are
+nonblank, partial when only one is available, and unavailable when neither is.
+Missing, null and empty fields remain distinct in the returned data. Show the
+GUID and an explicit unavailable status rather than guessing a name or email.
+The UPN is a sign-in name and need not be the user's email address.
+
+Profiles are not paged. A mismatched response ID, invalid response, inaccessible
+profile, deleted user or missing consent is an error. This read does not
+substitute the caller for the target user or broaden group/balance permissions.
+Use the returned observation time; it is not an atomic roster snapshot.
+
 ## Policy user table
 
 For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
@@ -74,10 +93,15 @@ For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
    nested membership does not establish effective policy targeting, precedence
    among multiple policies or enforcement. Membership uses an eventual index
    and may lag recent changes.
-4. Deduplicate users by returned GUID across pages and groups while retaining
-   all their source group IDs/names. Names and principal names may be null or
-   unavailable with least-privilege access: use the GUID rather than inventing
-   a name or requesting a wider directory permission.
+4. Deduplicate users by returned GUID case-insensitively across pages and groups
+   while retaining all their source group IDs/names. If displayName or
+   userPrincipalName is missing, null or blank, call `get_user_basic_profile`
+   once per distinct user after deduplication, sequentially. Skip profile lookup
+   when both fields are already available. Fill only missing fields, preserve
+   existing fields and source provenance, and disclose any conflicting values.
+   If the tool, consent or profile is unavailable, retain the GUID and explicit
+   name-resolution status. Do not request a wider directory permission.
+   Continue balance reads even if profile resolution fails.
 5. For each distinct user, call `list_user_service_balances` sequentially using
    that GUID as `userId`; follow all its pages. Display only actually returned
    `serviceId: cowork` records. Preserve units/periods and explicit zero; use
@@ -85,7 +109,7 @@ For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
    A failed read or absent Cowork record remains unavailable, not zero.
 6. Produce a table using fields actually returned: user name/UPN if available,
    user GUID, source groups, service/period/unit, consumed quantity, remaining
-   quantity and read status/observation time. Omit or mark unavailable fields
+   quantity, separate profile/balance statuses and observation times. Omit or mark unavailable fields
    rather than fabricating values. Do not calculate remaining credits from
    purchased minus consumed quantities.
 7. State the policy ID, membership mode, number of distinct groups/users read
@@ -110,6 +134,12 @@ on the MCP app, in addition to UserData for balances. Signed-in-user directory
 roles, tenant eligibility and endpoint availability remain separate. Hidden
 membership may require separate authorization; disclose incompleteness and
 do not request `Member.Read.Hidden` or a broader permission automatically.
+Basic-profile resolution additionally needs `User.ReadBasic.All`; administrator
+review may be required by tenant consent policies. Profile failure affects name
+completeness, not the known user roster or previously verified balance values.
+Do not silently repeat the same profile lookup for each source group or cache
+profiles across signed-in callers. If the profile tool is not discovered, the
+backend must be updated; a new ZIP alone cannot expose that server capability.
 
 ## Suggested user requests
 

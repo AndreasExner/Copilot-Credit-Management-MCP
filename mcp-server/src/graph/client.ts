@@ -1,12 +1,18 @@
 import type { Config } from "../config.js";
 import type { Actor } from "../auth/validate-token.js";
 import type { GetGraphToken } from "../auth/graph-obo.js";
+import { z } from "zod";
 import { ServiceError } from "../errors.js";
 import { RequestQueue } from "./request-queue.js";
 
 export const graphBaseUrl = "https://graph.microsoft.com/beta/copilot/costManagement";
 const maximumResponseBytes = 1024 * 1024;
 const objectGuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const userBasicProfileSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().nullable().optional(),
+  userPrincipalName: z.string().nullable().optional(),
+});
 
 export interface GraphResult {
   data: unknown;
@@ -50,6 +56,21 @@ export function userServiceBalancePageUrl(userId: string, nextLink?: string): st
     throw new ServiceError("invalid_user_id", "An Entra user object GUID is required, not a name or email address.", 400);
   }
   return readPageUrl(`/beta/copilot/costManagement/userBalances/${userId}/serviceBalances`, nextLink, false);
+}
+
+export function userBasicProfileUrl(userId: string): string {
+  if (!objectGuid.test(userId)) {
+    throw new ServiceError("invalid_user_id", "An Entra user object GUID is required, not a name or email address.", 400);
+  }
+  return `https://graph.microsoft.com/v1.0/users/${userId}?$select=id,displayName,userPrincipalName`;
+}
+
+export function validateUserBasicProfile(data: unknown, userId: string) {
+  const profile = userBasicProfileSchema.safeParse(data);
+  if (!profile.success || profile.data.id.toLowerCase() !== userId.toLowerCase()) {
+    throw new ServiceError("invalid_graph_profile", "Graph returned an invalid or mismatched user profile.", 502);
+  }
+  return profile.data;
 }
 
 export function policyAssignedGroupsPageUrl(policyId: string, nextLink?: string): string {

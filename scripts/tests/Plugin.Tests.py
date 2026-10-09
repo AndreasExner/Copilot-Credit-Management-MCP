@@ -121,6 +121,24 @@ class PluginTests(unittest.TestCase):
                 files[name] = files[name].replace(tool, b"unsupported_roster_tool")
                 self.mutated(files)
 
+    def test_missing_profile_tool_rejected(self) -> None:
+        files = self.files()
+        name = "skills/copilot-credit-management/SKILL.md"
+        files[name] = files[name].replace(b"get_user_basic_profile", b"unsupported_profile_tool")
+        self.mutated(files)
+
+    def test_packaged_profile_workflow_and_permissions(self) -> None:
+        files = self.files()
+        skill = files["skills/copilot-credit-management/SKILL.md"].decode()
+        workflow = files["skills/copilot-credit-management/references/read-workflows.md"].decode()
+        self.assertIn("User.ReadBasic.All", skill)
+        self.assertIn("get_user_basic_profile", workflow)
+        self.assertIn("once per distinct user", workflow)
+        self.assertIn("Continue balance reads even if profile resolution fails", workflow)
+        self.assertIn("nameResolutionStatus", workflow)
+        manifest = json.loads(files["manifest.json"])
+        self.assertEqual(manifest["version"], MANIFEST["version"])
+
 
 if __name__ == "__main__":
     unittest.main()

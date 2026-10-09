@@ -31,12 +31,17 @@ skill and one OAuth-protected remote MCP connector.
 
 ## Verified delivery state
 
-[Import ZIP: copilot-credit-management-0.3.0.zip](build/copilot-credit-management-0.3.0.zip)
+[Prepared ZIP: copilot-credit-management-0.4.0.zip](build/copilot-credit-management-0.4.0.zip)
 is built and validated against the official 1.29 JSON Schema and the exact
-archive constraints. All 14 positive/negative package tests pass. This is not a
+archive constraints. All 16 positive/negative package tests pass. This is not a
 claim that Microsoft's App Validation Library or tenant publication has been
 completed. The user reports a successful Cowork read on 2026-10-08; this is
 user-reported acceptance, not an independently observed response.
+
+**0.4.0 is prepared locally, not deployed.** The existing backend remains 0.3.0
+with five read tools. The new profile tool requires a separately approved
+backend update and delegated basic-profile consent; importing this ZIP alone
+cannot make it available. Do not treat package validation as live acceptance.
 
 The publisher's [project](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/about),
 [privacy](https://ca-ccm-eval-tnx2hg.calmhill-679a9318.canadaeast.azurecontainerapps.io/privacy)
@@ -52,8 +57,10 @@ The roster requires additional administrator review and an actual Cowork test.
 The plugin never prescribes a user account.
 
 Observed version discrepancy to revisit: Cowork displayed 2.0.0 for the prior
-ZIP whose manifest declares 0.2.0. The cause is unknown. The app ID and OAuth
-registration stay unchanged; 0.3.0 is the new package's actual manifest version.
+ZIP whose manifest declares 0.2.0. The user also reports 0.3.0 shown as 3.0.0.
+The cause is unknown; no 0.4.0 display has been verified. The app ID and OAuth
+registration stay unchanged; use the actual ZIP manifest version, not a guess
+based on the display pattern.
 
 ## Build and validation
 
@@ -72,7 +79,7 @@ pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1
 Run from the workspace root. The pipeline creates original project icons,
 packages only the five allowlisted files, validates the actual ZIP against
 Microsoft's official 1.29 schema and project constraints, and publishes
-`build/copilot-credit-management-0.3.0.zip` only after successful validation.
+`build/copilot-credit-management-0.4.0.zip` only after successful validation.
 The downloaded schema is cached outside the archive under `.azure`.
 
 Local `.azure` state and generated ZIPs are intentionally not committed.
@@ -93,8 +100,10 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
 
 1. In Cowork, open **Sources & Skills > Plugins** and use its plugin upload/import
    action. Import the ZIP, not the skill folder or a Skills-only archive.
-   Version 0.3.0 retains the original app ID and OAuth registration; use the
+   Version 0.4.0 retains the original app ID and OAuth registration; use the
    existing plugin's update/import workflow rather than a separate skill import.
+   First deploy the matching backend through the approved Azure workflow; the
+   currently deployed 0.3.0 server does not expose the profile tool.
 2. If uploading for tenant discovery, an administrator uses the organization's
    approved Microsoft 365 app-management upload workflow. This build does not
    automatically publish or share anything with the tenant.
@@ -112,8 +121,10 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
    remain available in a new task. Do not infer persistence from OneDrive files.
 
 This release contains `get_tenant_credit_balance`, `list_spending_policies`,
-`list_user_service_balances`, `list_policy_assigned_groups` and
-`list_group_users`. The user-service operation is evidenced by the newer
+`list_user_service_balances`, `list_policy_assigned_groups`, `list_group_users`
+and `get_user_basic_profile`. The profile read is part of prepared 0.4.0;
+the deployed 0.3.0 server has the preceding five tools only.
+The user-service operation is evidenced by the newer
 [user-supplied public example](https://gist.github.com/joerodgers/3774e34e1075128a63a5a372e47e324f);
 the user reports the updated plugin working. The new assigned-groups and
 membership workflow still needs its own authorized read test.
@@ -124,6 +135,25 @@ An error must remain an error; missing quantities and partial policy pages must
 not be presented as zero or a complete inventory.
 
 ## Authentication
+
+### Missing user names
+
+The group query already selects names but only requests membership permission;
+Graph may legitimately return GUIDs and null profile fields. The separate
+`get_user_basic_profile` reads exactly id, displayName and userPrincipalName
+by user GUID with delegated `User.ReadBasic.All`. The
+[profile consent/release setup](../README.md#prepared-release-040-missing-user-names)
+preserves all earlier scopes/proof and prepares a separate review request.
+Basic delegated profile consent is governed by tenant policies; no grant,
+new credential or sign-in reset is automatic.
+
+The Skill resolves missing names only after deduplication, once per user.
+It preserves existing fields/source provenance, flags conflicting values and
+retains GUIDs with explicit complete/partial/unavailable profile status.
+Inaccessible/deleted profiles or missing consent do not prevent separate
+balance reads. A UPN is not necessarily the user's email address.
+Actual name-resolution acceptance remains pending the backend rollout,
+authorized consent and a real Cowork table test.
 
 ### User service balances
 
@@ -156,6 +186,15 @@ is also available. Membership has eventual consistency and does not prove
 effective policy precedence/enforcement or policy-specific consumption.
 Incomplete pages, inaccessible/hidden groups and failed balances remain explicit
 in the report; they are not empty/zero success results.
+
+### Write tools
+
+This plugin remains read-only. MCP can support write tools, but no mutation
+tools or authorization/confirmation pipeline have been enabled here.
+See the [eleven-operation feasibility assessment](../README.md#write-operation-feasibility):
+candidate write-scope names do not establish operation schemas, roles or
+tenant availability. Enabling writes requires a separate approved plan and
+verified contracts, not merely a broader consent URL or prompt confirmation.
 
 The real auth reference is stored in [the manifest](appPackage/manifest.json).
 It is an identifier, not a credential. Its encoded tenant was checked against

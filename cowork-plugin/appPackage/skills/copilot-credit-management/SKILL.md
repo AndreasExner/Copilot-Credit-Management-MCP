@@ -1,6 +1,6 @@
 ---
 name: copilot-credit-management
-description: Read Copilot balances, spending policies, assigned groups and group users using the Copilot Credit Management MCP connector. Use for Copilot credits, Guthaben, Restguthaben, Benutzer-Guthaben, Cowork-Verbrauch, Copilot Budget, spending policies, Ausgabenrichtlinien, Cowork Large, policy user tables, Richtlinien-Benutzer, Gruppenzuordnung and credit-management status. This experimental release is read-only and uses the signed-in caller's delegated access.
+description: Read Copilot balances, spending policies, assigned groups, group users and basic user profiles using the Copilot Credit Management MCP connector. Use for Copilot credits, Guthaben, Benutzer-Guthaben, Cowork-Verbrauch, Copilot Budget, spending policies, Ausgabenrichtlinien, Cowork Large, policy user tables, Richtlinien-Benutzer, Gruppenzuordnung, Benutzernamen, Anzeigenamen, Anmeldenamen, UPN and credit-management status. This experimental release is read-only and uses the signed-in caller's delegated access.
 ---
 
 # Copilot Credit Management
@@ -24,6 +24,11 @@ discovered tools. Answer in the user's language, normally German.
   GUID as `groupId`. `transitive` defaults to true (nested users included);
   false means direct users only. Keep the group and mode fixed while paging.
   The directory index has eventual consistency; recent changes may lag.
+- `get_user_basic_profile`: reads only a user's returned `id`, `displayName`
+  and `userPrincipalName`, using their supplied or discovered GUID as required
+  `userId`. Requires separate delegated `User.ReadBasic.All` consent according
+  to tenant policy. Reports `nameResolutionStatus` as complete, partial or
+  unavailable; it does not invent a missing name or resolve email to a GUID.
 
 Discover the tools in the current task. Tool names may have a connector prefix;
 identify the exposed tools by their actual name and description. Never invent
@@ -45,7 +50,10 @@ other tools, arguments, routes, permission names or results.
 4. For all users in a named policy, such as "Cowork Large", use the complete
    [policy user table workflow](references/read-workflows.md#policy-user-table).
    Resolve the actual policy, read assigned groups, enumerate their users,
-   deduplicate user GUIDs, then read each user's Cowork service balances.
+   deduplicate user GUIDs, resolve missing names/UPNs with the profile tool
+   once per distinct user, then read each user's Cowork service balances.
+   Keep already returned name fields and their provenance; disclose conflicting
+   values. Continue balance reads if names are unavailable or a profile fails.
    Do not stop at policy limits or ask the user to supply every GUID if these
    tools can return them. Group membership does not prove effective policy
    precedence or policy-specific consumption.
@@ -81,6 +89,9 @@ other tools, arguments, routes, permission names or results.
 - Apply it also to assignments and membership. Failed/hidden groups, unread
   pages or limited member information must remain explicit. Use returned GUIDs
   if names/UPNs are unavailable. State direct/transitive mode and indexing lag.
+- Report name-resolution status separately from balance/membership status.
+  A failed or unavailable profile must not remove an otherwise known user
+  from the table. A UPN is a sign-in name, not necessarily an email address.
 - Do not infer policy-to-balance relationships, budget enforcement, license
   entitlements or financial recommendations from unrelated or missing fields.
 - Summarize policy objects using the fields actually returned. Do not fabricate
@@ -101,5 +112,10 @@ The policy roster additionally requires delegated
 administrator consent on the MCP application. Hidden membership can need
 separate authorization; do not request it automatically or switch to broader
 directory scopes. A failed assignment query is not an empty policy.
+Profile lookup additionally uses delegated `User.ReadBasic.All`. Its consent
+requirements depend on tenant policy; importing the plugin does not grant it.
+If the tool is missing, state that the matching backend release is required.
+Do not add broader user/directory or write permissions, bypass the connector
+or claim names are resolved when only GUIDs or null fields were returned.
 For a timeout or throttling, report it and honor any returned Retry-After; do not
 automatically loop or claim that a failed read succeeded.

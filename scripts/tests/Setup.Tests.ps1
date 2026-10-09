@@ -201,6 +201,21 @@ try {
     Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-userdata-state.json" -Raw) -eq $originalUserData) 'roster must preserve earlier UserData request state'
     $pendingRoster = Get-Content -LiteralPath "$testRoot\.azure\consent-roster-state.json" -Raw | ConvertFrom-Json
     Assert-Test ($pendingRoster.requestedScopes.Count -eq 5) 'roster must request exactly five delegated reads'
+    Assert-Test ($rosterConsent[0] -notmatch 'User.ReadBasic.All') 'existing roster consent must not acquire the profile scope implicitly'
+    $originalRoster = Get-Content -LiteralPath "$testRoot\.azure\consent-roster-state.json" -Raw
+    $profileConsent = & "$testRoot\scripts\New-GraphConsentUrl.ps1" -McpPublicUrl $parameters.McpPublicUrl -IncludePolicyRoster -IncludeUserProfiles
+    Assert-Test ($profileConsent[0] -like '*User.ReadBasic.All*') 'basic profiles require the exact basic user read scope'
+    Assert-Test ($profileConsent[0] -notmatch 'ReadWrite|Directory.Read|User.Read.All|Member.Read.Hidden|GroupMember.Read.All') 'profile read must not broaden to full directory, full user, hidden or write access'
+    $pendingProfiles = Get-Content -LiteralPath "$testRoot\.azure\consent-profiles-state.json" -Raw | ConvertFrom-Json
+    Assert-Test ($pendingProfiles.requestedScopes.Count -eq 6) 'full profile roster must request exactly six delegated reads'
+    Assert-Test ($pendingProfiles.clientId -eq $state.api.clientId) 'profile consent must target the MCP app, not the Cowork OAuth client'
+    Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-state.json" -Raw) -eq $originalConsent) 'profile request must preserve original proof'
+    Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-userdata-state.json" -Raw) -eq $originalUserData) 'profile request must preserve UserData state'
+    Assert-Test ((Get-Content -LiteralPath "$testRoot\.azure\consent-roster-state.json" -Raw) -eq $originalRoster) 'profile request must preserve roster state'
+    $profilesOnly = & "$testRoot\scripts\New-GraphConsentUrl.ps1" -McpPublicUrl $parameters.McpPublicUrl -IncludeUserProfiles
+    Assert-Test ($profilesOnly[0] -notmatch 'UserData|Assignment|GroupMember') 'standalone profile option must not implicitly request roster scopes'
+    $standaloneProfiles = Get-Content -LiteralPath "$testRoot\.azure\consent-profiles-state.json" -Raw | ConvertFrom-Json
+    Assert-Test ($standaloneProfiles.requestedScopes.Count -eq 3) 'standalone profile consent is the two defaults plus basic profile read'
     Assert-Test ($script:counts.grants -eq $before.grants) 'printing consent URL must not grant consent'
     $failed = $false
     $invalid = $parameters.Clone()

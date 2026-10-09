@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory)][uri]$McpPublicUrl,
     [switch]$IncludeUserServiceBalances,
-    [switch]$IncludePolicyRoster
+    [switch]$IncludePolicyRoster,
+    [switch]$IncludeUserProfiles
 )
 . "$PSScriptRoot\Azure-Helpers.ps1"
 if ($McpPublicUrl.Scheme -ne 'https' -or $McpPublicUrl.AbsolutePath -ne '/mcp' -or
@@ -27,6 +28,9 @@ if ($IncludePolicyRoster) {
         'https://graph.microsoft.com/GroupMember.ReadBasic.All'
     )
 }
+if ($IncludeUserProfiles) {
+    $scopes += 'https://graph.microsoft.com/User.ReadBasic.All'
+}
 $parameters = [ordered]@{
     client_id = $identity.api.clientId
     scope = $scopes -join ' '
@@ -36,7 +40,8 @@ $parameters = [ordered]@{
 $query = ($parameters.GetEnumerator() | ForEach-Object {
     $_.Key + '=' + [uri]::EscapeDataString([string]$_.Value)
 }) -join '&'
-$stateFile = if ($IncludePolicyRoster) { 'consent-roster-state.json' }
+$stateFile = if ($IncludeUserProfiles) { 'consent-profiles-state.json' }
+    elseif ($IncludePolicyRoster) { 'consent-roster-state.json' }
     elseif ($IncludeUserServiceBalances) { 'consent-userdata-state.json' }
     else { 'consent-state.json' }
 Save-ProjectState -Path (Join-Path $root ".azure\$stateFile") -State @{

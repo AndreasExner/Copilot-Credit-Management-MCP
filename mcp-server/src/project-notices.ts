@@ -3,8 +3,8 @@ export const projectNotices = {
     title: "Copilot Credit Management",
     body: `<p>An internal evaluation project connecting Copilot Cowork to a
 protected remote MCP server for Copilot credit balances and spending policies.</p>
-<p>This release provides five read-only tools, including policy-assigned groups,
-group user membership and per-user service balance data where authorized and
+<p>This release provides six read-only tools, including policy-assigned groups,
+group user membership, targeted basic user profiles and per-user service balance data where authorized and
 enabled. Membership reads may lag recent directory changes; a group roster does
 not prove policy enforcement or policy-specific consumption. The remaining operations and
 mutations are not enabled. Users sign in with their own authorized account;
@@ -19,8 +19,9 @@ successful delegated Graph access.</p>`,
     body: `<p>This factual notice describes the current internal evaluation
 service. It is not a replacement for your organization's approved privacy policy.</p>
 <p>The MCP server validates the signed-in user's access token and processes
-delegated Graph tokens, policy/group/user object identifiers, returned user names
-and principal names, tenant/user service balances and spending-policy responses in memory
+delegated Graph tokens, policy/group/user object identifiers, returned display
+names and principal names (including targeted basic-profile reads), tenant/user
+service balances and spending-policy responses in memory
 to fulfill the requested read. It does not maintain a database of those results.</p>
 <p>The application does not intentionally log bearer tokens, client secrets or
 customer Graph response bodies. Diagnostic events may contain error/status codes,
