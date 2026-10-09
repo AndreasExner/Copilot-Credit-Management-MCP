@@ -400,5 +400,13 @@ installed dependencies, generated build outputs and plugin ZIPs are excluded.
 Keep those exclusions intact when publishing changes; build plugin ZIPs locally
 from the supplied source after configuring your own authorized OAuth registration.
 
+## License
+
+This project's original code and documentation are licensed under the
+[MIT License](LICENSE), copyright 2026 Andreas Exner. Third-party dependencies
+retain their respective licenses. The license does not cover the excluded
+confidential API guide or grant access to Microsoft services; preview/API
+terms and organizational requirements still apply.
+
 [Managed-identity application federation](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity)
 documents the exact issuer/subject/audience trust.
