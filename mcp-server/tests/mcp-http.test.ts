@@ -4,8 +4,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/server.js";
 import { createReadServer } from "../src/tools/reads.js";
+import { PolicyUserBalanceReader } from "../src/tools/policy-user-balances.js";
 import { GraphClient, graphBaseUrl, groupUsersPageUrl, policyAssignedGroupsPageUrl, userBasicProfileUrl } from "../src/graph/client.js";
 import { ServiceError } from "../src/errors.js";
+import type { GetGraphToken } from "../src/auth/graph-obo.js";
+import { z } from "zod";
 import { actor, config } from "./helpers.js";
 const secondActor = { ...actor, objectId: "ab26bfc5-2c56-4553-bd75-aa9946340b14", assertion: "another-mocked-user-assertion" };
 
@@ -14,10 +17,13 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
     billingMethodBalances: [{ remainingQuantity: 7 }],
   }));
   const log = vi.fn();
-  const getToken = vi.fn(async () => "mock-graph-token");
+  const getToken = vi.fn<GetGraphToken>(async () => "mock-graph-token");
   const graph = new GraphClient(config, getToken, fetcher);
+  const policyBalances = new PolicyUserBalanceReader(graph);
   const app = createApp(config, {
     authenticate: async (header) => {
+      if (header === "Bearer offline-aggregate-actor") return actor;
+      if (header === "Bearer offline-aggregate-second") return secondActor;
       if (header === "Bearer another-mocked-token") return secondActor;
       if (header === "Bearer valid-mocked-token") return actor;
       if (header !== "Bearer local-test-token") {
@@ -25,7 +31,7 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
       }
       return actor;
     },
-    createServer: (caller) => createReadServer(caller, graph),
+    createServer: (caller) => createReadServer(caller, graph, policyBalances),
     log,
   });
   const http = app.listen(0, "127.0.0.1");
@@ -81,11 +87,13 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
     });
     try {
       await client.connect(transport);
+      expect(client.getServerVersion()).toMatchObject({ version: "0.5.0" });
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "get_tenant_credit_balance", "list_spending_policies", "list_user_service_balances",
         "list_policy_assigned_groups", "list_group_users",
         "get_user_basic_profile",
+        "list_policy_user_balances",
       ]);
       for (const tool of tools.tools) {
         expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
@@ -99,6 +107,66 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
       await client.close();
     }
   });
+      it("aggregates profiles/balances across stateless HTTP calls without sharing continuations with another user", async () => {
+        const users = Array.from({ length: 10 }, (_, index) => `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, "0")}`);
+        const previous = fetcher.getMockImplementation()!;
+        const firstTokenCall = getToken.mock.calls.length;
+        fetcher.mockImplementation(async (uri) => {
+          const url = String(uri);
+          if (url === policyAssignedGroupsPageUrl("aggregate-policy")) return Response.json({ value: [{ id: actor.objectId }] });
+          if (url === groupUsersPageUrl(actor.objectId, true)) return Response.json({ value: users.map((id) => ({ id })) });
+          const profile = users.find((id) => url === userBasicProfileUrl(id));
+          if (profile) return Response.json({ id: profile, displayName: "Resolved User", userPrincipalName: "resolved@example.test" });
+          if (users.some((id) => url === `${graphBaseUrl}/userBalances/${id}/serviceBalances`)) {
+            return Response.json({ value: [{ serviceId: "cowork", remainingQuantity: 0 }] });
+          }
+          throw new Error("Unexpected offline aggregate URL.");
+        });
+        const pageSchema = z.object({
+          status: z.string(), continuationToken: z.string().uuid().optional(), usersProcessed: z.number(),
+          rows: z.array(z.object({ id: z.string(), displayName: z.string(), userPrincipalName: z.string() })),
+        });
+        const client = new Client({ name: "offline-aggregate-http-test", version: "1" });
+        const other = new Client({ name: "offline-aggregate-other-user", version: "1" });
+        try {
+          await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+            requestInit: { headers: { authorization: "Bearer offline-aggregate-actor" } },
+          }));
+          await other.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+            requestInit: { headers: { authorization: "Bearer offline-aggregate-second" } },
+          }));
+          const first = await client.callTool({ name: "list_policy_user_balances", arguments: { policyId: "aggregate-policy" } });
+          expect(first.isError).not.toBe(true);
+          let page = pageSchema.parse(first.structuredContent);
+          const rows = [...page.rows];
+          expect(page.continuationToken).toBeDefined();
+          const calls = fetcher.mock.calls.length;
+          const rejected = await other.callTool({
+            name: "list_policy_user_balances", arguments: { policyId: "aggregate-policy", continuationToken: page.continuationToken },
+          });
+          expect(rejected.isError).toBe(true);
+          expect(JSON.stringify(rejected)).toContain("invalid_or_expired_continuation");
+          expect(fetcher.mock.calls.length).toBe(calls);
+          let pages = 1;
+          while (page.continuationToken) {
+            if (pages++ > 10) throw new Error("HTTP aggregate did not terminate.");
+            const response = await client.callTool({
+              name: "list_policy_user_balances", arguments: { policyId: "aggregate-policy", continuationToken: page.continuationToken },
+            });
+            expect(response.isError).not.toBe(true);
+            page = pageSchema.parse(response.structuredContent);
+            rows.push(...page.rows);
+          }
+          expect(page).toMatchObject({ status: "complete", usersProcessed: 10 });
+          expect(rows).toHaveLength(10);
+          expect(rows.every((row) => row.displayName === "Resolved User")).toBe(true);
+          expect(getToken.mock.calls.slice(firstTokenCall).every((call) => call[0] === actor)).toBe(true);
+        } finally {
+          fetcher.mockImplementation(previous);
+          await client.close();
+          await other.close();
+        }
+      });
   it("reads the signed-in user's service balances with only the UserData scope", async () => {
     const data = { value: [{ serviceId: "cowork", remainingQuantity: 0 }, { serviceId: "workIQ" }] };
     fetcher.mockResolvedValueOnce(Response.json(data));

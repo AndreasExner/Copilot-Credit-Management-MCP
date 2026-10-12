@@ -3,16 +3,18 @@ import { createAuthenticator } from "./auth/validate-token.js";
 import { createGraphTokenProvider } from "./auth/graph-obo.js";
 import { GraphClient } from "./graph/client.js";
 import { createReadServer } from "./tools/reads.js";
+import { PolicyUserBalanceReader } from "./tools/policy-user-balances.js";
 import { createApp } from "./server.js";
 
 const config = loadConfig();
 const graph = new GraphClient(config, createGraphTokenProvider(config));
+const policyBalances = new PolicyUserBalanceReader(graph);
 const log = (record: Record<string, string | number>) => {
   console.log(JSON.stringify({ time: new Date().toISOString(), ...record }));
 };
 const app = createApp(config, {
   authenticate: createAuthenticator(config),
-  createServer: (actor) => createReadServer(actor, graph),
+  createServer: (actor) => createReadServer(actor, graph, policyBalances),
   log,
 });
 const httpServer = app.listen(config.port, "0.0.0.0", () => {

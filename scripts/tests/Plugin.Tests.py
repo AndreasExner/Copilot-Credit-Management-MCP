@@ -236,6 +236,24 @@ class PluginTests(unittest.TestCase):
         files[name] = files[name].replace(b"get_user_basic_profile", b"unsupported_profile_tool")
         self.mutated(files)
 
+    def test_missing_aggregate_tool_rejected(self) -> None:
+        files = self.files()
+        name = "skills/copilot-credit-management/SKILL.md"
+        files[name] = files[name].replace(b"list_policy_user_balances", b"unsupported_aggregate_tool")
+        self.mutated(files)
+
+    def test_packaged_aggregate_workflow_and_bounds(self) -> None:
+        files = self.files()
+        skill = files["skills/copilot-credit-management/SKILL.md"].decode()
+        workflow = files["skills/copilot-credit-management/references/read-workflows.md"].decode()
+        self.assertIn("list_policy_user_balances", skill)
+        self.assertIn("continuationToken", workflow)
+        self.assertIn("serviceBalancePages", workflow)
+        self.assertIn("15-second", workflow)
+        self.assertIn("status: paused", workflow)
+        self.assertIn("without scripts", workflow)
+        self.assertIn("Individual-tool fallback", workflow)
+
     def test_packaged_profile_workflow_and_permissions(self) -> None:
         files = self.files()
         skill = files["skills/copilot-credit-management/SKILL.md"].decode()

@@ -140,6 +140,8 @@ def validate(package: Path, schema_path: Path, tenant: str, mcp_url: str, refere
         tools.extend(["list_policy_assigned_groups", "list_group_users"])
     if tuple(map(int, manifest["version"].split("."))) >= (0, 4, 0):
         tools.append("get_user_basic_profile")
+    if tuple(map(int, manifest["version"].split("."))) >= (0, 5, 0):
+        tools.append("list_policy_user_balances")
     for tool in tools:
         require(tool in skill, "The skill must describe every read tool in this release.")
 

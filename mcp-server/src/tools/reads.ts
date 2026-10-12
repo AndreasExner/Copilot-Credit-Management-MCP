@@ -6,9 +6,10 @@ import {
   userBasicProfileUrl, userServiceBalancePageUrl, validateUserBasicProfile, type GraphClient,
 } from "../graph/client.js";
 import { safeError } from "../errors.js";
+import { PolicyUserBalanceReader } from "./policy-user-balances.js";
 
-export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
-  const server = new McpServer({ name: "copilot-credit-management", version: "0.4.0" });
+export function createReadServer(actor: Actor, graph: GraphClient, policyBalances: PolicyUserBalanceReader): McpServer {
+  const server = new McpServer({ name: "copilot-credit-management", version: "0.5.0" });
   const readAnnotations = {
     readOnlyHint: true,
     destructiveHint: false,
@@ -119,6 +120,24 @@ export function createReadServer(actor: Actor, graph: GraphClient): McpServer {
         nameResolutionStatus: availableNames === 2 ? "complete" : availableNames === 1 ? "partial" : "unavailable",
       };
       return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
+    } catch (error) {
+      const failure = safeError(error).toJSON();
+      return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };
+    }
+  });
+
+  server.registerTool("list_policy_user_balances", {
+    description: "Read a resumable server-side policy user table: assigned groups, deduplicated group users, missing basic names/UPNs and each user's service balance pages as the current caller. Supply the policy ID returned by list_spending_policies. Follow only this tool's opaque continuationToken, even when rows is empty during roster discovery. Each call is bounded, not a full-policy guarantee. Inspect rosterComplete, status, per-row profile/balance errors and failed-read counts; missing is not zero. Continuations bind caller/policy/mode and expire after 15 minutes on a single replica; restart invalidates them. On paused status stop/report progress and Retry-After; no immediate retry loop. Requires the existing Assignment, GroupMember.ReadBasic, UserData scopes plus User.ReadBasic.All when names are missing. Never bypass the connector or run parallel per-user calls.",
+    inputSchema: {
+      policyId: z.string().min(1).max(256).describe("Exact policy identifier returned by list_spending_policies, not its display name."),
+      transitive: z.boolean().optional().describe("Defaults to true on the first call; false selects direct users. Omit on continuation or retain the same mode."),
+      continuationToken: z.string().uuid().optional().describe("Opaque continuationToken from this tool's preceding response. Do not supply Graph nextLink or mix policies, callers or workflows."),
+    },
+    annotations: readAnnotations,
+  }, async (input) => {
+    try {
+      const result = await policyBalances.read(actor, input);
+      return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: { ...result } };
     } catch (error) {
       const failure = safeError(error).toJSON();
       return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }] };

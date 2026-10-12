@@ -31,7 +31,9 @@ skill and one OAuth-protected remote MCP connector.
 
 ## Verified delivery state
 
-[Download template ZIPs and SHA-256 checksums](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0).
+[Download 0.5.0 template ZIP and SHA-256 checksum](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0).
+Historical 0.1.0-0.4.0 templates remain in the
+[previous release](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0).
 **These public ZIPs are tenant-neutral templates, not import-ready packages.**
 Check each downloaded ZIP with `Get-FileHash -Algorithm SHA256` against the
 matching filename in the release's `SHA256SUMS.txt` before extracting it.
@@ -46,13 +48,17 @@ Neither check establishes tenant publication or runtime acceptance.
 |---|---|---|
 | 0.1.0 | Tenant balance and policies | Historical template |
 | 0.2.0 | Adds user service balances | Historical template |
-| 0.3.0 | Adds assigned groups and group users | Matches the existing evaluation backend's feature set |
-| 0.4.0 | Adds targeted basic user profiles | Prepared profile preview; matching backend rollout pending |
+| 0.3.0 | Adds assigned groups and group users | Historical five-tool backend |
+| 0.4.0 | Adds targeted basic user profiles | Local profile source; was not deployed as a separate backend |
+| 0.5.0 | Adds resumable server-side policy user tables | Evaluation backend deployed/registration verified 2026-10-12 |
 
-**0.4.0 is prepared locally, not deployed.** The existing backend remains 0.3.0
-with five read tools. The new profile tool requires a separately approved
-backend update and delegated basic-profile consent; importing this ZIP alone
-cannot make it available. Do not treat package validation as live acceptance.
+The existing evaluation backend was updated from 0.3.0 to 0.5.0. Revision
+health, unchanged resource controls and seven registered tools were verified.
+In-container SDK registration verification made no Graph calls and does not
+prove signed-in Cowork acceptance or successful live name resolution.
+The profile tool and aggregate tool must be discovered from the server, not
+inferred from the installed plugin's version. Consent remains a separate manual
+review. Do not treat package validation as live name-resolution acceptance.
 
 Local packaging derives the publisher's `/about`, `/privacy` and `/terms`
 notice URLs and allowed domain from your approved MCP origin. Verify those
@@ -67,8 +73,9 @@ The roster requires additional administrator review and an actual Cowork test.
 The plugin never prescribes a user account.
 
 Observed version discrepancy to revisit: Cowork displayed 2.0.0 for the prior
-ZIP whose manifest declares 0.2.0. The user also reports 0.3.0 shown as 3.0.0.
-The cause is unknown; no 0.4.0 display has been verified. The app ID and OAuth
+ZIP whose manifest declares 0.2.0. The user also reports 0.3.0 shown as 3.0.0
+and 0.4.0 shown as 4.0.0 (2026-10-12). The cause is unknown; no 0.5.0 display
+has been verified. The app ID and OAuth
 registration stay unchanged; use the actual ZIP manifest version, not a guess
 based on the display pattern.
 
@@ -88,7 +95,7 @@ pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 -Template
 
 Run from the workspace root. The pipeline reuses the checked-in project icons,
 packages only the five allowlisted files and publishes
-`build/copilot-credit-management-0.4.0-template.zip` after template validation.
+`build/copilot-credit-management-0.5.0-template.zip` after template validation.
 The downloaded official schema is cached outside the archive under `.azure`.
 The tests use synthetic configuration in temporary directories, never real
 tenant state or cloud calls, and do not overwrite your configured ZIPs.
@@ -125,10 +132,10 @@ in the OAuth reference. Malformed references, missing approval values,
 credential-bearing URLs and non-HTTPS/non-`/mcp` endpoints are rejected.
 The build renders the manifest only inside the output archive; it never writes
 deployment identifiers into the tracked source template. The configured ZIP is
-`build/copilot-credit-management-0.4.0.zip` (or the selected source version).
+`build/copilot-credit-management-0.5.0.zip` (or the selected source version).
 Only that validated configured ZIP is suitable for import.
 
-For example, after extracting the 0.3.0 template into a local directory:
+For example, after extracting the 0.5.0 template into a local directory:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 `
@@ -153,7 +160,8 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
    Preserve your original app ID and OAuth registration when updating; use the
    existing plugin's update/import workflow rather than a separate skill import.
    First deploy the matching backend through the approved Azure workflow; the
-   currently deployed 0.3.0 server does not expose the profile tool.
+   a five-tool 0.3.0 server does not expose the profile or aggregate tools,
+   regardless of whether Cowork displays the plugin as 4.0.0.
 2. If uploading for tenant discovery, an administrator uses the organization's
    approved Microsoft 365 app-management upload workflow. This build does not
    automatically publish or share anything with the tenant.
@@ -172,8 +180,9 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
 
 This release contains `get_tenant_credit_balance`, `list_spending_policies`,
 `list_user_service_balances`, `list_policy_assigned_groups`, `list_group_users`
-and `get_user_basic_profile`. The profile read is part of prepared 0.4.0;
-the deployed 0.3.0 server has the preceding five tools only.
+`get_user_basic_profile` and `list_policy_user_balances`. Discover seven tools
+after the matching 0.5.0 backend rollout; stale five-tool discovery indicates
+an older backend or cached connection, not proof of missing Graph consent.
 The user-service operation is evidenced by the newer
 [user-supplied public example](https://gist.github.com/joerodgers/3774e34e1075128a63a5a372e47e324f);
 the user reports the updated plugin working. The new assigned-groups and
@@ -192,7 +201,7 @@ The group query already selects names but only requests membership permission;
 Graph may legitimately return GUIDs and null profile fields. The separate
 `get_user_basic_profile` reads exactly id, displayName and userPrincipalName
 by user GUID with delegated `User.ReadBasic.All`. The
-[profile consent/release setup](../README.md#prepared-release-040-missing-user-names)
+[profile consent/release setup](../README.md#basic-profiles-missing-user-names)
 preserves all earlier scopes/proof and prepares a separate review request.
 Basic delegated profile consent is governed by tenant policies; no grant,
 new credential or sign-in reset is automatic.
@@ -202,8 +211,8 @@ It preserves existing fields/source provenance, flags conflicting values and
 retains GUIDs with explicit complete/partial/unavailable profile status.
 Inaccessible/deleted profiles or missing consent do not prevent separate
 balance reads. A UPN is not necessarily the user's email address.
-Actual name-resolution acceptance remains pending the backend rollout,
-authorized consent and a real Cowork table test.
+Actual name-resolution acceptance requires the matching backend, authorized
+consent and a real Cowork table test.
 
 ### User service balances
 
@@ -228,9 +237,12 @@ for delegated `CopilotCostManagement-Assignment.Read.All` and
 read scopes. Consent is not automatically granted; the separate pending roster
 state preserves earlier proof. No write or application permissions are needed.
 
-The integrated Skill resolves the actual named policy, pages assigned groups,
-pages each group's user-only membership, deduplicates users by GUID and then
-reads every user's service balances sequentially. Names may be unavailable;
+The integrated Skill resolves the actual named policy and prefers the bounded
+`list_policy_user_balances` workflow. The server pages assignments/members,
+deduplicates GUIDs, resolves missing names and reads service balances. Follow
+all opaque continuationToken values sequentially, including empty discovery
+pages. Report paused/partial progress and per-row errors; do not start parallel
+per-user calls or bypass the connector from scripts. Names may be unavailable;
 keep the returned GUIDs. Nested members are included by default; direct mode
 is also available. Membership has eventual consistency and does not prove
 effective policy precedence/enforcement or policy-specific consumption.

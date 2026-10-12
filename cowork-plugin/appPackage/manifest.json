@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
   "manifestVersion": "1.29",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "id": "${PLUGIN_APP_ID}",
   "developer": {
     "name": "Copilot Credit Management",
@@ -14,8 +14,8 @@
     "full": "Copilot Credit Management for Cowork"
   },
   "description": {
-    "short": "Read Copilot balances, policies and group users with authorized name resolution.",
-    "full": "Experimental read-only plugin with an integrated credit-management skill and an OAuth-protected Azure MCP connector. Six tools read tenant balances, spending policies, assigned groups, group users, per-user service balances and targeted basic user profiles through delegated Microsoft Graph. Missing names/UPNs can be read by user GUID with User.ReadBasic.All consent according to tenant policy; existing group and balance scopes do not change. The cost-management API is Preview/beta. Membership may lag recent changes and does not prove policy enforcement. Missing quantities, profile failures and partial pagination remain explicit. No write operations. Requires the matching backend release; actual profile access must be tested in Cowork."
+    "short": "Read policy user tables, balances and names with resumable server-side paging.",
+    "full": "Experimental read-only plugin with an integrated credit-management skill and an OAuth-protected Azure MCP connector. Seven tools include resumable server-side policy user tables, tenant balances, policies, assigned groups, group users, service balances and targeted basic profiles through delegated Microsoft Graph. The aggregate workflow deduplicates users, resolves missing names with User.ReadBasic.All and preserves balance pages and explicit partial/error states. It uses bounded calls and caller-bound continuations held in memory for up to 15 minutes on one replica; restarts require a new workflow. No connector access from scripts or parallel per-user fan-out is needed. The cost API is Preview/beta; membership may lag and does not prove enforcement. No write operations. Requires a matching backend and authorized consent; installation alone does not prove Graph access."
   },
   "icons": {
     "color": "color.png",
@@ -34,7 +34,7 @@
     {
       "id": "copilot-credit-management",
       "displayName": "Copilot Credit Management",
-      "description": "Read balances, policies, assigned groups, group users and targeted basic user profiles as the caller. Profile names require User.ReadBasic.All separately from roster Assignment/GroupMember.ReadBasic and balance UserData consent. Experimental and read-only.",
+      "description": "Read balances, policies and resumable policy user tables as the caller. Missing profile names use User.ReadBasic.All; roster and balance scopes stay separate. Follow opaque aggregate continuations sequentially and report partial/paused results. Experimental and read-only.",
       "toolSource": {
         "remoteMcpServer": {
           "mcpServerUrl": "${MCP_PUBLIC_URL}",

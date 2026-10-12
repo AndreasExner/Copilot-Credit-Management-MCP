@@ -78,6 +78,56 @@ Use the returned observation time; it is not an atomic roster snapshot.
 
 For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
 
+### Preferred aggregate workflow (backend 0.5.0 or later)
+
+Resolve the actual policy by paging `list_spending_policies`; clarify ambiguous
+names. Call `list_policy_user_balances` with its exact `policyId`. Transitive
+membership is the default; use false only for requested direct membership.
+This tool does the roster/profile/balance loop on the server, without scripts
+or parallel per-user tool calls. Profile lookup runs once per distinct user
+whose names are missing, and balance reads continue after a profile failure.
+
+Follow every returned opaque `continuationToken` sequentially with the same
+policy and either omitted or unchanged membership mode. This is not a Graph
+`nextLink`. A response can contain zero rows while groups/members are being
+discovered; it is not an empty policy when a token remains. Keep collected
+rows and deduplicate replayed responses by user GUID.
+
+Each response is bounded to at most eight upstream dispatch attempts, five
+completed user rows and a 15-second overall budget. `serviceBalancePages` holds
+original per-user Graph response wrappers, including `data.value`, returned
+metadata/request IDs and observation times. Preserve units/periods and missing
+versus zero; show only actually returned `serviceId: cowork` records when asked
+for Cowork. `no_records` or an absent Cowork record does not mean zero credits.
+
+Retain sourceGroupIds, nameSources and any nameConflicts. Report each row's
+nameResolutionStatus, profileLookupStatus/profileError and balanceStatus/
+balanceError separately. `status: complete` means processing finished; it does
+not guarantee a name was available or prove policy enforcement. `partial`,
+rosterComplete false, failed-read counts or group errors mean the corresponding
+inventory/read is incomplete. Do not omit failed users or turn errors into zero.
+
+For `status: paused`, report verified progress and Retry-After, stop automatic
+processing and resume only deliberately after waiting. The server performs no
+internal retry loop. Tokens are caller/policy/mode-bound and expire after
+15 minutes; restart or another replica makes them unavailable. Never substitute
+another caller or guess tokens. A replay of the last response does not re-read
+Graph and must not duplicate table rows.
+
+Limits are explicit: 20 workflows, 100 groups, 1,000 users, 1,000 collection
+pages, 2 MiB buffered state, 128 KiB per row and 256 KiB per MCP tool payload
+(text and structured content combined). On a limit
+error, explain the incomplete aggregate and use the individual paged MCP tools
+where appropriate. Do not bypass the connector. No app-only Graph or write
+permission is needed or requested. The same read permissions apply, including
+User.ReadBasic.All for missing names. A new plugin alone cannot deploy the tool.
+
+### Individual-tool fallback
+
+Use this only when the aggregate tool is not discovered or cannot represent
+the requested scope within its explicit limits. Explain a missing backend
+capability; installing a newer plugin alone does not add server-side tools.
+
 1. Page `list_spending_policies` completely to resolve the actual requested
    policy by its returned name and ID. If multiple policies match, clarify the
    target; never guess an ID or treat the name as an identifier. Keep limits

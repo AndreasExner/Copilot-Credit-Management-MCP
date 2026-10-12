@@ -146,9 +146,13 @@ export class GraphClient {
     this.queue = new RequestQueue(config.graphMinIntervalMs, config.graphMaxQueue);
   }
 
-  async get(actor: Actor, uri: string, scope: string, consistencyLevel?: "eventual"): Promise<GraphResult> {
-    const deadline = Date.now() + this.config.graphTimeoutMs;
-    const signal = AbortSignal.timeout(this.config.graphTimeoutMs);
+  async get(actor: Actor, uri: string, scope: string, consistencyLevel?: "eventual",
+    overallDeadline?: number): Promise<GraphResult> {
+    const deadline = Math.min(Date.now() + this.config.graphTimeoutMs, overallDeadline ?? Infinity);
+    if (deadline <= Date.now()) {
+      throw new ServiceError("graph_timeout", "The Graph request has no remaining time budget.", 504);
+    }
+    const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
     return this.queue.run(async () => {
       try {
         const token = await this.getToken(actor, [`https://graph.microsoft.com/${scope}`], signal);

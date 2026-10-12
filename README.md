@@ -25,7 +25,8 @@ service. Configure your own authorized single-tenant deployment. Actual tenant,
 subscription, application and resource identifiers belong only in ignored local
 state; the source manifest contains explicit configuration markers.
 
-Version 0.3.0 implements five read-only MCP tools:
+Version 0.5.0 implements seven read-only MCP tools. The original five reads
+remain compatible:
 
 - `get_tenant_credit_balance`
 - `list_spending_policies`, including validated, unchanged continuation URLs
@@ -38,13 +39,20 @@ Version 0.3.0 implements five read-only MCP tools:
 - `list_group_users`, with a returned group GUID and explicit direct/transitive
   mode (nested users included by default). Requires delegated
   `GroupMember.ReadBasic.All`; uses eventual consistency and user-only results.
+- `get_user_basic_profile`, for targeted basic names/UPNs with `User.ReadBasic.All`.
+- `list_policy_user_balances`, for bounded server-side roster/profile/balance
+  aggregation with caller-bound continuation rather than per-user tool fan-out.
 
-### Prepared release 0.4.0: missing user names
+**Rollout status (2026-10-12):** the existing evaluation backend was updated
+from 0.3.0 to 0.5.0. Live revision health, unchanged deployment controls and
+seven registered tools were verified. Registration was checked in-container
+through the SDK without Graph access; this is not signed-in Cowork/Graph
+acceptance. Installing a plugin alone never updates its server.
 
-Current source and the
-[0.4.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.4.0/copilot-credit-management-0.4.0-template.zip)
-add a sixth read-only tool, `get_user_basic_profile`. **The profile release has
-not been rolled out to the existing evaluation backend, which remains 0.3.0.**
+### Basic profiles: missing user names
+
+`get_user_basic_profile` was introduced in local source 0.4.0 and is included
+in the 0.5.0 backend rollout together with aggregation.
 Public ZIPs are deliberately unconfigured templates, not import-ready plugins.
 Configure and validate a local ZIP before importing it, and deploy a matching
 backend through a separately authorized Azure workflow.
@@ -84,12 +92,40 @@ and [limited member information](https://learn.microsoft.com/en-us/graph/api/gro
 
 ### Policy table behavior
 
-The Skill combines these reads into a deduplicated policy user table with
-per-user Cowork service balances. It preserves paging, unavailable values and
-individual errors. A directory roster is not proof of effective policy
-precedence, enforcement or policy-specific consumption. Recent directory
-changes may lag. The new roster workflow requires administrator consent and
-actual tenant/Cowork acceptance; a successful local test does not prove either.
+The Skill now prefers `list_policy_user_balances` after resolving the policy.
+The server pages assignments/membership, deduplicates user GUIDs, retains source
+groups and name provenance/conflicts, reads missing basic profiles once and
+then collects each user's original service balance pages. Profile errors do
+not suppress balance reads. Existing individual tools remain a sequential
+fallback; connector access from scripts and parallel per-user calls are not
+needed. A directory roster does not prove enforcement or policy-specific usage.
+
+The tool accepts `policyId`, optional direct/transitive mode and an opaque
+`continuationToken`. Continue sequentially even if a discovery page has no rows.
+Tokens bind tenant/user/client/policy/mode, contain no credentials/customer
+payload and expire after 15 minutes. Only the preceding response can be replayed
+without rereading Graph; deduplicate replayed rows. Restart or another replica
+invalidates tokens. This POC uses bounded memory, not a durable job store.
+
+Each call permits at most eight upstream attempts, five completed rows, a
+15-second end-to-end budget including queue/auth/network, and 256 KiB MCP tool
+payload including both compatibility text and structured content encodings.
+Limits are 20 workflows, 100 groups, 1,000 users, 1,000 collection pages,
+2 MiB buffered state and 128 KiB per row. An oversized row is explicit and
+can be read through the individual balance tool. Other exceeded workflow
+limits fail explicitly rather than claim a complete inventory.
+
+Inspect `status`, `rosterComplete`, failed-read counts, group errors and each
+row's profile/balance statuses. `serviceBalancePages` preserves original Graph
+wrappers, metadata, units, periods, missing quantities and observation times.
+Empty/missing service records are not zero. `paused` reports Retry-After and
+verified progress without an automatic retry loop; resume only deliberately
+after waiting. Results are observations over time, not an atomic snapshot.
+
+The offline 53-user fixture finishes in 14 aggregate calls with one profile
+lookup per distinct user, duplicate groups/users removed and multiple pages
+preserved. This is a measurable local result, not a live latency or tenant
+acceptance guarantee. Actual names still require authorized User.ReadBasic.All.
 
 The user reports a successful **Cowork -> MCP -> OBO -> Graph** read on
 2026-10-08. This clears the original connectivity prerequisite; the assistant
@@ -116,10 +152,11 @@ is supporting Graph functionality, not another cost-management operation.
 There is no write endpoint,
 anonymous MCP mode or app-only Graph fallback.
 
-The [0.3.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.4.0/copilot-credit-management-0.3.0-template.zip)
+The [0.5.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.5.0/copilot-credit-management-0.5.0-template.zip)
 includes the corresponding integrated Skill without deployment identifiers.
-See the [release downloads](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0)
-for all four historical/current template versions and SHA-256 checksums, and
+See the [current release downloads](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0)
+for the template and SHA-256 checksum; the four historical versions remain
+in the [previous release](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0). Follow
 the [local configuration and import instructions](cowork-plugin/README.md).
 Template checks verify the exact placeholder locations and schema after
 synthetic substitution; only the separately configured local ZIP is validated
@@ -187,10 +224,11 @@ Review as an authorized administrator. The Cowork OAuth client, token-store
 reference and `Mcp.Read offline_access` do not change. No broader directory,
 hidden-membership, application or write permissions are requested.
 
-Update/import plugin 0.3.0, start a new Cowork task and request:
+Update/import the locally configured 0.5.0 plugin after the matching backend
+rollout, start a new Cowork task and request:
 `Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand`.
-The Skill pages every collection, retains source groups, deduplicates user
-GUIDs and reads each user's Cowork records sequentially. Returned names/UPNs
+The Skill prefers server-side aggregation, follows opaque continuations
+sequentially and retains source groups, deduplicated GUIDs and errors. Names/UPNs
 may be unavailable under least-privilege access; GUIDs remain usable.
 Hidden or inaccessible groups and failed user reads must be reported explicitly.
 User roles, tenant API availability and eligibility still apply.
@@ -204,8 +242,9 @@ effectively applies to them. State this mode and possible indexing lag.
 The per-user balances are service data, not policy-specific financial totals.
 
 Remembered Cowork UI discrepancy: 0.2.0 was observed as 2.0.0; the user also
-reports 0.3.0 displayed as 3.0.0. Cause unknown; no display version for 0.4.0
-has been verified. Use the actual manifest version and do not change stable
+reports 0.3.0 displayed as 3.0.0 and, on 2026-10-12, 0.4.0 displayed as 4.0.0.
+The latter two are user-reported. Cause unknown; no 0.5.0 display is verified.
+Use the actual manifest version and do not change stable
 app/OAuth IDs or apply a speculative version workaround.
 
 ### Write-operation feasibility
@@ -474,7 +513,7 @@ plugin source/icons and documentation are included. Confidential API
 documentation, local `.azure` state and validation environments, credentials,
 installed dependencies and generated build outputs are excluded from Git.
 Tenant-neutral template ZIPs and SHA-256 checksums are distributed as
-[GitHub Release attachments](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0),
+[GitHub Release attachments](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0),
 not binary commits. Configured, import-ready ZIPs remain local and must not be
 uploaded as neutral templates. The public templates intentionally retain
 configuration markers and cannot be imported directly.

@@ -3,7 +3,8 @@ export const projectNotices = {
     title: "Copilot Credit Management",
     body: `<p>An internal evaluation project connecting Copilot Cowork to a
 protected remote MCP server for Copilot credit balances and spending policies.</p>
-<p>This release provides six read-only tools, including policy-assigned groups,
+<p>Backend release 0.5.0 provides seven read-only tools, including resumable
+server-side policy user balance tables, policy-assigned groups,
 group user membership, targeted basic user profiles and per-user service balance data where authorized and
 enabled. Membership reads may lag recent directory changes; a group roster does
 not prove policy enforcement or policy-specific consumption. The remaining operations and
@@ -22,7 +23,11 @@ service. It is not a replacement for your organization's approved privacy policy
 delegated Graph tokens, policy/group/user object identifiers, returned display
 names and principal names (including targeted basic-profile reads), tenant/user
 service balances and spending-policy responses in memory
-to fulfill the requested read. It does not maintain a database of those results.</p>
+to fulfill the requested read. Aggregate progress and a replayable last response
+are kept in bounded caller-isolated memory for up to 15 minutes. No caller
+assertions or Graph tokens are stored in that progress state. Restart invalidates
+continuations; multiple replicas are not supported for aggregation.
+It does not maintain a database of those results.</p>
 <p>The application does not intentionally log bearer tokens, client secrets or
 customer Graph response bodies. Diagnostic events may contain error/status codes,
 correlation IDs and upstream request IDs. Azure platform diagnostics are handled
