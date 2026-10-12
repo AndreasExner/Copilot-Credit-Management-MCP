@@ -341,6 +341,7 @@ describe("bounded policy user balance aggregation", () => {
   });
 
   it("pauses on throttling, surfaces Retry-After and permits deliberate continuation without an internal retry loop", async () => {
+    vi.useFakeTimers();
     const { reader, get } = fixture(3);
     get.mockRejectedValueOnce(new ServiceError("TooManyRequests", "Throttled.", 429, 7, "upstream-retry"));
     const first = await reader.read(actor, { policyId });
@@ -349,15 +350,114 @@ describe("bounded policy user balance aggregation", () => {
     });
     expect(get).toHaveBeenCalledTimes(1);
     expect(first.continuationToken).toBeDefined();
-    const next = await reader.read(actor, { policyId, continuationToken: first.continuationToken });
+    const pending = reader.read(actor, { policyId, continuationToken: first.continuationToken });
+    await vi.advanceTimersByTimeAsync(6999);
+    expect(get).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const next = await pending;
     expect(next.status).not.toBe("paused");
+  });
+
+  it.each([
+    ["graph_timeout", 504, 5, "profile"],
+    ["TooManyRequests", 429, 7, "profile"],
+    ["ServiceUnavailable", 503, 10, "profile"],
+    ["graph_timeout", 504, 5, "balance"],
+    ["TooManyRequests", 429, 7, "balance"],
+    ["ServiceUnavailable", 503, 10, "balance"],
+  ])("resumes %s after user 35 on %s without losing, duplicating or rounding any of 53 users", async (code, status, delay, stage) => {
+    vi.useFakeTimers();
+    const { reader, get, implementation, ids, balanceNext } = fixture();
+    const failingUri = stage === "profile" ? userBasicProfileUrl(ids[35]!) : userServiceBalancePageUrl(ids[35]!);
+    let failed = false;
+    const raw = { value: [
+      { serviceId: "cowork", remainingQuantity: 12.5, consumedQuantity: -2.5, unit: "credits" },
+      { serviceId: "other", remainingQuantity: null, unit: "credits" },
+      { serviceId: "missing", unit: "credits" },
+    ] };
+    get.mockImplementation(async (...args) => {
+      if (!failed && args[1] === failingUri) {
+        failed = true;
+        throw new ServiceError(code, "Transient offline failure.", status, delay);
+      }
+      if (args[1] === userServiceBalancePageUrl(ids[0]!)) {
+        return result({ ...raw, "@odata.nextLink": balanceNext });
+      }
+      return implementation(...args);
+    });
+    const pages: PolicyBalancePage[] = [];
+    let token: string | undefined;
+    let sentToken: string | undefined;
+    do {
+      sentToken = token;
+      const page = await reader.read(actor, { policyId, continuationToken: token });
+      pages.push(page);
+      token = page.continuationToken;
+      if (page.status === "paused") break;
+    } while (token);
+    expect(pages.at(-1)).toMatchObject({ status: "paused", usersProcessed: 35, retryAfterSeconds: delay });
+    const before = get.mock.calls.length;
+    expect(await reader.read(actor, { policyId, continuationToken: sentToken })).toEqual(pages.at(-1));
+    expect(get).toHaveBeenCalledTimes(before);
+    const pending = reader.read(actor, { policyId, continuationToken: token });
+    await expect(reader.read(actor, { policyId, continuationToken: token }))
+      .rejects.toMatchObject({ code: "aggregation_busy" });
+    await vi.advanceTimersByTimeAsync(delay * 1000 - 1);
+    expect(get).toHaveBeenCalledTimes(before);
+    await vi.advanceTimersByTimeAsync(1);
+    const resumed = await pending;
+    pages.push(resumed);
+    token = resumed.continuationToken;
+    while (token) {
+      const page = await reader.read(actor, { policyId, continuationToken: token });
+      pages.push(page);
+      token = page.continuationToken;
+    }
+    const rows = pages.flatMap((page) => page.rows);
+    expect(rows).toHaveLength(53);
+    expect(new Set(rows.map((row) => row.id))).toEqual(new Set(ids));
+    expect(rows[0]!.serviceBalancePages[0]!.data).toMatchObject(raw);
+    expect(rows[0]!.serviceBalancePages).toHaveLength(2);
+    expect(pages.at(-1)).toMatchObject({ status: "complete", usersProcessed: 53, usersDiscovered: 53 });
+    expect(get.mock.calls.filter((call) => call[1] === failingUri)).toHaveLength(2);
+    expect(get.mock.calls.filter((call) => call[2] === "CopilotCostManagement-UserData.Read.All"))
+      .toHaveLength(stage === "balance" ? 55 : 54);
+  });
+
+  it("reports remaining long waits without dispatch and allows continuation when only ten seconds remain", async () => {
+    vi.useFakeTimers();
+    const { reader, get } = fixture(1);
+    get.mockRejectedValueOnce(new ServiceError("TooManyRequests", "Wait.", 429, 120));
+    const first = await reader.read(actor, { policyId });
+    await vi.advanceTimersByTimeAsync(3000);
+    const paused = await reader.read(actor, { policyId, continuationToken: first.continuationToken });
+    expect(paused).toMatchObject({ status: "paused", retryAfterSeconds: 117, usersProcessed: 0 });
+    expect(get).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(107000);
+    const pending = reader.read(actor, { policyId, continuationToken: paused.continuationToken });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect((await pending).status).not.toBe("paused");
+  });
+
+  it("does not wait beyond workflow expiry or dispatch near its deadline", async () => {
+    vi.useFakeTimers();
+    const { reader, get } = fixture(1);
+    get.mockRejectedValueOnce(new ServiceError("TooManyRequests", "Wait.", 429, 898));
+    const first = await reader.read(actor, { policyId });
+    await vi.advanceTimersByTimeAsync(895000);
+    const paused = await reader.read(actor, { policyId, continuationToken: first.continuationToken });
+    expect(paused).toMatchObject({ status: "paused", retryAfterSeconds: 3 });
+    expect(get).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(reader.read(actor, { policyId, continuationToken: paused.continuationToken }))
+      .rejects.toMatchObject({ code: "invalid_or_expired_continuation" });
   });
 
   it("stops dispatching when the overall call budget is almost exhausted", async () => {
     vi.useFakeTimers();
     const { reader, get, implementation } = fixture(3);
     get.mockImplementationOnce(async (...args) => {
-      await vi.advanceTimersByTimeAsync(14700);
+      await vi.advanceTimersByTimeAsync(13000);
       return implementation(...args);
     });
     const page = await reader.read(actor, { policyId });

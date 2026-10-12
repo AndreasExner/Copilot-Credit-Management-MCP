@@ -39,6 +39,25 @@ describe("Graph adapter", () => {
     await expect(client.get(actor, `${graphBaseUrl}/spendingPolicies`, "scope"))
       .rejects.toMatchObject({ code: "invalid_graph_response" });
   });
+  it.each(["120", "Mon, 12 Oct 2026 12:02:00 GMT"])("honors numeric or HTTP-date Retry-After %s through the shared queue", async (header) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
+    try {
+      const fetcher = vi.fn<typeof fetch>(async () => Response.json(
+        { error: { code: "ServiceUnavailable" } },
+        { status: 503, headers: { "retry-after": header } },
+      ));
+      const client = new GraphClient(config, async () => "token", fetcher);
+      await expect(client.get(actor, `${graphBaseUrl}/spendingPolicies`, "scope"))
+        .rejects.toMatchObject({ status: 503, retryAfterSeconds: 120 });
+      await vi.advanceTimersByTimeAsync(3100);
+      await expect(client.get(actor, `${graphBaseUrl}/spendingPolicies`, "scope"))
+        .rejects.toMatchObject({ code: "queue_timeout", retryAfterSeconds: 117 });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("rejects oversized responses rather than truncating them", async () => {
     const client = new GraphClient(config, async () => "token",
       vi.fn<typeof fetch>(async () => new Response("a".repeat(1024 * 1024 + 1))));
@@ -199,6 +218,33 @@ describe("basic user profile reads", () => {
 });
 
 describe("sequential queue", () => {
+  it("reports the actual remaining cooldown without early dispatch", async () => {
+    vi.useFakeTimers();
+    try {
+      const queue = new RequestQueue(1000, 10);
+      queue.defer(120);
+      await vi.advanceTimersByTimeAsync(3100);
+      const operation = vi.fn(async () => "ok");
+      await expect(queue.run(operation, Date.now() + 15000))
+        .rejects.toMatchObject({ code: "queue_timeout", retryAfterSeconds: 117 });
+      expect(operation).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(106900);
+      const pending = queue.run(operation, Date.now() + 15000);
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(operation).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([Infinity, NaN, -1, Number.MAX_VALUE])("rejects invalid cooldown %s without poisoning the shared queue", async (seconds) => {
+    const queue = new RequestQueue(0, 10);
+    expect(() => queue.defer(seconds)).toThrowError(expect.objectContaining({ code: "invalid_graph_retry_after" }));
+    expect(await queue.run(async () => "ok", Date.now() + 1000)).toBe("ok");
+  });
+
   it("never executes operations in parallel", async () => {
     const queue = new RequestQueue(0, 10);
     let active = 0;

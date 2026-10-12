@@ -8,6 +8,8 @@ import {
 import { ServiceError } from "../errors.js";
 
 const callBudgetMs = 15000;
+const dispatchReserveMs = 2000;
+const maxAutomaticWaitMs = 10000;
 const workflowLifetimeMs = 15 * 60 * 1000;
 const maxCalls = 8;
 const maxRows = 5;
@@ -103,6 +105,8 @@ interface Workflow {
   activeToken?: string;
   replayToken?: string;
   replay?: PolicyBalancePage;
+  pause?: WorkflowError;
+  retryNotBefore?: number;
 }
 
 function owner(actor: Actor): string {
@@ -189,6 +193,7 @@ export class PolicyUserBalanceReader {
           groups: workflow.groups, members: [...workflow.members.values()], errors: workflow.errors,
           activeRow: workflow.activeRow, visited: [...workflow.visited], replay: workflow.replay,
           activeRowVisited: workflow.activeRow ? [...workflow.activeRow.visited] : [],
+          pause: workflow.pause, retryNotBefore: workflow.retryNotBefore,
         }) > maxStateBytes) {
       throw new ServiceError("aggregation_limit", "The policy exceeds aggregate workflow limits. Use the individual paged read tools.", 413);
     }
@@ -347,8 +352,18 @@ export class PolicyUserBalanceReader {
     const rows: PolicyBalanceRow[] = [];
     let paused: WorkflowError | undefined;
     try {
+      if (workflow.pause) {
+        const delay = Math.max(0, (workflow.retryNotBefore ?? 0) - Date.now());
+        if (delay > maxAutomaticWaitMs || Date.now() + delay + dispatchReserveMs >= deadline) {
+          paused = { ...workflow.pause, retryAfterSeconds: Math.max(1, Math.ceil(delay / 1000)) };
+        } else {
+          if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+          workflow.pause = undefined;
+          workflow.retryNotBefore = undefined;
+        }
+      }
       let calls = 0;
-      while (workflow.phase !== "complete") {
+      while (!paused && workflow.phase !== "complete") {
         if (workflow.phase === "balances") {
           if (workflow.userIndex >= workflow.users.length) {
             workflow.phase = "complete";
@@ -364,14 +379,21 @@ export class PolicyUserBalanceReader {
             continue;
           }
         }
-        if (calls >= maxCalls || Date.now() + 500 >= deadline) break;
+        if (calls >= maxCalls || Date.now() + dispatchReserveMs >= deadline) break;
         calls++;
         try {
           await this.step(actor, workflow, deadline);
         } catch (error) {
           if (!(error instanceof ServiceError) || error.code === "aggregation_limit") throw error;
           if (resumable(error)) {
-            paused = { ...error.toJSON(), stage: workflow.phase };
+            const retryAfterSeconds = error.retryAfterSeconds ?? 5;
+            const retryNotBefore = Date.now() + retryAfterSeconds * 1000;
+            if (!Number.isFinite(retryNotBefore) || retryAfterSeconds < 0) {
+              throw new ServiceError("invalid_retry_after", "The retry delay is invalid. The workflow cannot safely continue.", 502);
+            }
+            paused = { ...error.toJSON(), stage: workflow.phase, retryAfterSeconds };
+            workflow.pause = paused;
+            workflow.retryNotBefore = retryNotBefore;
             break;
           }
           this.failStep(workflow, error);

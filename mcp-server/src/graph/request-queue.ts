@@ -12,7 +12,11 @@ export class RequestQueue {
   ) {}
 
   defer(seconds: number): void {
-    this.notBefore = Math.max(this.notBefore, Date.now() + seconds * 1000);
+    const until = Date.now() + seconds * 1000;
+    if (!Number.isFinite(until) || seconds < 0) {
+      throw new ServiceError("invalid_graph_retry_after", "Graph returned an invalid retry delay.", 502);
+    }
+    this.notBefore = Math.max(this.notBefore, until);
   }
 
   async run<T>(operation: () => Promise<T>, deadline: number): Promise<T> {
@@ -25,7 +29,8 @@ export class RequestQueue {
       try {
         const delay = Math.max(0, this.lastFinished + this.intervalMs - Date.now(), this.notBefore - Date.now());
         if (Date.now() + delay >= deadline) {
-          throw new ServiceError("queue_timeout", "The Graph request could not start within its time budget.", 429, 5);
+          throw new ServiceError("queue_timeout", "The Graph request could not start within its time budget.", 429,
+            Math.max(1, Math.ceil(delay / 1000)));
         }
         if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
         if (Date.now() >= deadline) {
@@ -47,7 +52,8 @@ export class RequestQueue {
       timer = setTimeout(() => reject(
         started
           ? new ServiceError("graph_timeout", "The Graph request exceeded its time budget.", 504)
-          : new ServiceError("queue_timeout", "The Graph request exceeded its queue time budget.", 429, 5),
+          : new ServiceError("queue_timeout", "The Graph request exceeded its queue time budget.", 429,
+            Math.max(5, Math.ceil((this.notBefore - Date.now()) / 1000))),
       ), Math.max(0, deadline - Date.now()));
     });
     try {

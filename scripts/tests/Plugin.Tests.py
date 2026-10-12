@@ -254,6 +254,21 @@ class PluginTests(unittest.TestCase):
         self.assertIn("without scripts", workflow)
         self.assertIn("Individual-tool fallback", workflow)
 
+    def test_packaged_whole_credit_and_bounded_continuation_contract(self) -> None:
+        files = self.files()
+        workflow = files["skills/copilot-credit-management/references/read-workflows.md"].decode()
+        for instruction in (
+            "halves away from zero", "12.50 -> 13", "-12.50 -> -13",
+            "Missing/null/error quantities remain unavailable, never zero",
+            "at most 10 seconds", "third consecutive pause/interruption",
+            "changing tokens or timestamps alone is not progress",
+            "one primary table row per distinct user GUID", "not only the",
+            "Never hard-code 53", "server-side continuation backoff",
+            "same previously sent token", "one-second base request spacing is unchanged",
+        ):
+            with self.subTest(instruction=instruction):
+                self.assertIn(instruction, workflow)
+
     def test_packaged_profile_workflow_and_permissions(self) -> None:
         files = self.files()
         skill = files["skills/copilot-credit-management/SKILL.md"].decode()

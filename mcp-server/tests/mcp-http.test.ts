@@ -87,7 +87,7 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
     });
     try {
       await client.connect(transport);
-      expect(client.getServerVersion()).toMatchObject({ version: "0.5.0" });
+      expect(client.getServerVersion()).toMatchObject({ version: "0.5.1" });
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "get_tenant_credit_balance", "list_spending_policies", "list_user_service_balances",
@@ -98,6 +98,11 @@ describe("authenticated stateless MCP HTTP vertical slice", () => {
       for (const tool of tools.tools) {
         expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
       }
+      const aggregate = tools.tools.find((tool) => tool.name === "list_policy_user_balances");
+      expect(aggregate?.description).toContain("server-side continuation backoff");
+      expect(aggregate?.description).toContain("up to 10 seconds");
+      expect(aggregate?.description).toContain("three consecutive pauses");
+      expect(aggregate?.description).not.toContain("On paused status stop/report");
       const response = await client.callTool({ name: "get_tenant_credit_balance", arguments: {} });
       expect(response.isError).not.toBe(true);
       expect(response.structuredContent).toMatchObject({

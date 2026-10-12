@@ -3,7 +3,7 @@ export const projectNotices = {
     title: "Copilot Credit Management",
     body: `<p>An internal evaluation project connecting Copilot Cowork to a
 protected remote MCP server for Copilot credit balances and spending policies.</p>
-<p>Backend release 0.5.0 provides seven read-only tools, including resumable
+<p>Backend release 0.5.1 provides seven read-only tools, including resumable
 server-side policy user balance tables, policy-assigned groups,
 group user membership, targeted basic user profiles and per-user service balance data where authorized and
 enabled. Membership reads may lag recent directory changes; a group roster does

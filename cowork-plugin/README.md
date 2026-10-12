@@ -31,7 +31,7 @@ skill and one OAuth-protected remote MCP connector.
 
 ## Verified delivery state
 
-[Download 0.5.0 template ZIP and SHA-256 checksum](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0).
+[Download 0.5.1 template ZIP and SHA-256 checksum](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.1).
 Historical 0.1.0-0.4.0 templates remain in the
 [previous release](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0).
 **These public ZIPs are tenant-neutral templates, not import-ready packages.**
@@ -50,15 +50,30 @@ Neither check establishes tenant publication or runtime acceptance.
 | 0.2.0 | Adds user service balances | Historical template |
 | 0.3.0 | Adds assigned groups and group users | Historical five-tool backend |
 | 0.4.0 | Adds targeted basic user profiles | Local profile source; was not deployed as a separate backend |
-| 0.5.0 | Adds resumable server-side policy user tables | Evaluation backend deployed/registration verified 2026-10-12 |
+| 0.5.0 | Adds resumable server-side policy user tables | Deployed; user reports successful testing and approval 2026-10-12 |
+| 0.5.1 | Whole-credit display and bounded short-wait continuation; same seven tools | Deployed/schema-validated; 183 backend and 26 package tests pass; Cowork output acceptance pending |
 
-The existing evaluation backend was updated from 0.3.0 to 0.5.0. Revision
+The historical 0.5.0 rollout updated the evaluation backend from 0.3.0. Revision
 health, unchanged resource controls and seven registered tools were verified.
 In-container SDK registration verification made no Graph calls and does not
 prove signed-in Cowork acceptance or successful live name resolution.
+Separately, the user reported successful testing of 0.5.0 and explicitly
+approved the release on 2026-10-12. This user-reported acceptance does not
+independently verify individual Graph grants or remove the experimental and
+Preview API warnings.
 The profile tool and aggregate tool must be discovered from the server, not
 inferred from the installed plugin's version. Consent remains a separate manual
 review. Do not treat package validation as live name-resolution acceptance.
+
+Backend 0.5.1 is now deployed with unchanged resource controls. Live health,
+notice version, OAuth metadata, 401 rejection and all seven SDK registrations
+were verified; the aggregate description explicitly advertises bounded
+server-side continuation backoff. Synthetic registration made no Graph calls.
+Both local packages pass schema/archive validation. All 183 backend tests,
+26 package tests, typecheck/build and offline setup tests pass. Timeout/429/503
+after user 35 recover all 53 distinct users in offline profile/balance cases.
+Actual 0.5.1 Cowork whole-credit rendering and primary-table acceptance remains
+pending; package/instruction checks cannot prove those UI results.
 
 Local packaging derives the publisher's `/about`, `/privacy` and `/terms`
 notice URLs and allowed domain from your approved MCP origin. Verify those
@@ -95,7 +110,7 @@ pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 -Template
 
 Run from the workspace root. The pipeline reuses the checked-in project icons,
 packages only the five allowlisted files and publishes
-`build/copilot-credit-management-0.5.0-template.zip` after template validation.
+`build/copilot-credit-management-0.5.1-template.zip` after template validation.
 The downloaded official schema is cached outside the archive under `.azure`.
 The tests use synthetic configuration in temporary directories, never real
 tenant state or cloud calls, and do not overwrite your configured ZIPs.
@@ -132,10 +147,10 @@ in the OAuth reference. Malformed references, missing approval values,
 credential-bearing URLs and non-HTTPS/non-`/mcp` endpoints are rejected.
 The build renders the manifest only inside the output archive; it never writes
 deployment identifiers into the tracked source template. The configured ZIP is
-`build/copilot-credit-management-0.5.0.zip` (or the selected source version).
+`build/copilot-credit-management-0.5.1.zip` (or the selected source version).
 Only that validated configured ZIP is suitable for import.
 
-For example, after extracting the 0.5.0 template into a local directory:
+For example, after extracting the 0.5.1 template into a local directory:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\New-CoworkPlugin.ps1 `
@@ -181,7 +196,7 @@ No CLI provisioning or authentication is needed for this packaging pipeline.
 This release contains `get_tenant_credit_balance`, `list_spending_policies`,
 `list_user_service_balances`, `list_policy_assigned_groups`, `list_group_users`
 `get_user_basic_profile` and `list_policy_user_balances`. Discover seven tools
-after the matching 0.5.0 backend rollout; stale five-tool discovery indicates
+after the matching backend rollout (current 0.5.1); stale five-tool discovery indicates
 an older backend or cached connection, not proof of missing Graph consent.
 The user-service operation is evidenced by the newer
 [user-supplied public example](https://gist.github.com/joerodgers/3774e34e1075128a63a5a372e47e324f);
@@ -248,6 +263,27 @@ is also available. Membership has eventual consistency and does not prove
 effective policy precedence/enforcement or policy-specific consumption.
 Incomplete pages, inaccessible/hidden groups and failed balances remain explicit
 in the report; they are not empty/zero success results.
+
+In 0.5.1, displayed credit balances, consumption and limits use commercial
+rounding to whole credits (halves away from zero), without modifying raw API
+precision. Missing/null/error values remain unavailable, not zero.
+The primary table has exactly one row per distinct user GUID; additional
+records, periods and units are explained separately. Compare collected users
+with the final discovered/processed counts before claiming completeness.
+
+Automatic paused continuation requires the discovered tool description to
+advertise server-side continuation backoff. The backend honors waits up to
+ten seconds within its 15-second budget, without internal Graph retries.
+The Skill stops after three consecutive pauses without observable progress
+or reports a longer wait without shortening it. Normal continuation uses the
+newest token; a lost reply is recovered with the exact previously sent token.
+The one-second base pacing remains unchanged. Older/unknown backends and
+individual-tool fallback still require deliberate continuation after waiting.
+
+Acceptance prompt: "Erstelle eine Tabelle mit den aktuellen Copilot Credits
+der Policy Small". For the reported roster, verify 53 distinct primary rows
+and only whole-credit cells, including the first 35 after a pause. This is
+an actual Cowork check, not established by package or offline backend tests.
 
 ### Write tools
 

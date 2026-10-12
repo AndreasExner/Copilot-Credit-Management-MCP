@@ -9,7 +9,7 @@ import { safeError } from "../errors.js";
 import { PolicyUserBalanceReader } from "./policy-user-balances.js";
 
 export function createReadServer(actor: Actor, graph: GraphClient, policyBalances: PolicyUserBalanceReader): McpServer {
-  const server = new McpServer({ name: "copilot-credit-management", version: "0.5.0" });
+  const server = new McpServer({ name: "copilot-credit-management", version: "0.5.1" });
   const readAnnotations = {
     readOnlyHint: true,
     destructiveHint: false,
@@ -127,7 +127,7 @@ export function createReadServer(actor: Actor, graph: GraphClient, policyBalance
   });
 
   server.registerTool("list_policy_user_balances", {
-    description: "Read a resumable server-side policy user table: assigned groups, deduplicated group users, missing basic names/UPNs and each user's service balance pages as the current caller. Supply the policy ID returned by list_spending_policies. Follow only this tool's opaque continuationToken, even when rows is empty during roster discovery. Each call is bounded, not a full-policy guarantee. Inspect rosterComplete, status, per-row profile/balance errors and failed-read counts; missing is not zero. Continuations bind caller/policy/mode and expire after 15 minutes on a single replica; restart invalidates them. On paused status stop/report progress and Retry-After; no immediate retry loop. Requires the existing Assignment, GroupMember.ReadBasic, UserData scopes plus User.ReadBasic.All when names are missing. Never bypass the connector or run parallel per-user calls.",
+    description: "Read a resumable server-side policy user table: assigned groups, deduplicated group users, missing basic names/UPNs and each user's service balance pages as the current caller. Supply the policy ID returned by list_spending_policies. Follow only this tool's opaque continuationToken, even when rows is empty during roster discovery. Each call is bounded, not a full-policy guarantee. Inspect rosterComplete, status, per-row profile/balance errors and failed-read counts; missing is not zero. Continuations bind caller/policy/mode and expire after 15 minutes on a single replica; restart invalidates them. Supports server-side continuation backoff: a continuation waits up to 10 seconds for the saved Retry-After within its call budget; there is no internal retry loop. Automatically continue paused results only with a valid token and Retry-After at most 10 seconds; stop after three consecutive pauses without observable progress, or report longer waits without shortening them. Requires the existing Assignment, GroupMember.ReadBasic, UserData scopes plus User.ReadBasic.All when names are missing. Never bypass the connector or run parallel per-user calls.",
     inputSchema: {
       policyId: z.string().min(1).max(256).describe("Exact policy identifier returned by list_spending_policies, not its display name."),
       transitive: z.boolean().optional().describe("Defaults to true on the first call; false selects direct users. Omit on continuation or retain the same mode."),

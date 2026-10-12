@@ -1,6 +1,6 @@
 ---
 name: copilot-credit-management
-description: Read Copilot balances, spending policies and resumable policy user tables with basic profile names using the Copilot Credit Management MCP connector. Use for Copilot credits, Guthaben, Benutzer-Guthaben, Cowork-Verbrauch, Copilot Budget, spending policies, Ausgabenrichtlinien, Cowork Large, policy user tables, Richtlinien-Benutzer, Gruppenzuordnung, Benutzernamen, Anzeigenamen, Anmeldenamen, UPN and credit-management status. Prefer bounded server-side aggregation for many users. This experimental release is read-only and uses the signed-in caller's delegated access.
+description: Read Copilot balances, spending policies and resumable policy user tables with basic profile names using the Copilot Credit Management MCP connector. Use for Copilot credits, whole credits, Guthaben, ganze Credits, Benutzer-Guthaben, Cowork-Verbrauch, Copilot Budget, spending policies, Ausgabenrichtlinien, Cowork Large, Policy Small, policy user tables, Richtlinien-Benutzer, Gruppenzuordnung, Benutzernamen, Anzeigenamen, Anmeldenamen, UPN and credit-management status. Prefer bounded server-side aggregation for many users. This experimental release is read-only and uses the signed-in caller's delegated access.
 ---
 
 # Copilot Credit Management
@@ -91,6 +91,12 @@ other tools, arguments, routes, permission names or results.
 ## Reporting
 
 - Preserve API-provided units, periods, identifiers and field meanings.
+- Display credit quantities as whole integers, commercially rounded to the
+  nearest credit with halves away from zero, never with decimal places or
+  trailing .0/,0. Follow the shared
+  [whole-credit display rule](references/read-workflows.md#whole-credit-display).
+  Keep raw API precision unchanged. Missing/null/error is not zero, and rounded
+  zero does not prove an exactly zero raw quantity. Do not round other units.
 - Report `remainingQuantity` only when returned. Never infer it from purchased
   minus consumed quantities. Missing is not zero.
 - Do not claim to have enumerated all policies while a next link remains or a
@@ -107,6 +113,15 @@ other tools, arguments, routes, permission names or results.
   remains. `partial` is not success for failed reads; report individual errors
   and cumulative failed-read counts. Inspect `serviceBalancePages[].data`
   and display only actually returned Cowork records with their original units.
+- Produce one primary table row per distinct user GUID, including users with
+  unavailable names, absent service records or failed reads. Explain multiple
+  periods/units/records separately; never combine them into an invented balance.
+  Before final output, compare the unique collected GUID count with
+  `usersProcessed` and `usersDiscovered`, check the terminal status, absence of
+  continuation, `rosterComplete` and failed-read counts. Never show only the last
+  page. For the reported Policy Small scenario, 35/53 is interim progress and
+  the final primary table contains all 53 distinct people. Do not hard-code 53
+  for other runs or fabricate users if actual discovery differs.
 - Report name-resolution status separately from balance/membership status.
   A failed or unavailable profile must not remove an otherwise known user
   from the table. A UPN is a sign-in name, not necessarily an email address.
@@ -135,10 +150,17 @@ requirements depend on tenant policy; importing the plugin does not grant it.
 If the tool is missing, state that the matching backend release is required.
 Do not add broader user/directory or write permissions, bypass the connector
 or claim names are resolved when only GUIDs or null fields were returned.
-For a timeout or throttling, report it and honor any returned Retry-After; do not
-automatically loop or claim that a failed read succeeded.
-For aggregate `status: paused`, stop, report verified progress and the returned
-wait time, and resume only deliberately after that wait using the returned
-continuation. Never retry internally or start parallel replacement workflows.
+For a timeout or throttling, report it and honor any returned Retry-After.
+A timeout alone does not prove Graph throttling; distinguish the actual code.
+For aggregate `status: paused`, use the
+[bounded continuation rule](references/read-workflows.md#bounded-continuation).
+Automatically resume only when the discovered tool explicitly advertises
+server-side continuation backoff, the returned wait is at most 10 seconds and
+the token remains valid. The backend waits before Graph dispatch; do not
+invent a sleep tool or use scripts. Stop on the third consecutive pause or
+interruption without observable progress, on longer waits or on missing wait
+support. Preserve verified rows and report incompleteness; do not shorten a
+longer Retry-After or claim a failed read succeeded. Never start parallel
+replacement workflows or retry permanent/authentication errors automatically.
 Invalid/expired continuations require a fresh run; report that previously
 returned rows and a new run are not one atomic snapshot.

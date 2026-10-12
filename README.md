@@ -25,7 +25,7 @@ service. Configure your own authorized single-tenant deployment. Actual tenant,
 subscription, application and resource identifiers belong only in ignored local
 state; the source manifest contains explicit configuration markers.
 
-Version 0.5.0 implements seven read-only MCP tools. The original five reads
+Version 0.5.1 implements seven read-only MCP tools. The original five reads
 remain compatible:
 
 - `get_tenant_credit_balance`
@@ -43,11 +43,26 @@ remain compatible:
 - `list_policy_user_balances`, for bounded server-side roster/profile/balance
   aggregation with caller-bound continuation rather than per-user tool fan-out.
 
-**Rollout status (2026-10-12):** the existing evaluation backend was updated
+**Historical 0.5.0 rollout (2026-10-12):** the existing evaluation backend was updated
 from 0.3.0 to 0.5.0. Live revision health, unchanged deployment controls and
 seven registered tools were verified. Registration was checked in-container
 through the SDK without Graph access; this is not signed-in Cowork/Graph
 acceptance. Installing a plugin alone never updates its server.
+
+**User acceptance (2026-10-12):** the user reported successful testing of
+version 0.5.0 and explicitly approved it. This is user-reported release
+acceptance, not independent verification of individual Graph grants or a
+production certification. The experimental and Preview API warnings remain.
+
+**0.5.1 rollout (2026-10-12):** the matching backend is deployed; both neutral
+and privately configured packages pass schema/archive validation. Health,
+OAuth metadata, 401 rejection, exact unchanged resource controls and seven
+SDK registrations with advertised backoff were verified. Registration made
+zero Graph calls. All 183 backend tests, 26 package tests, typecheck, build
+and offline setup tests pass, including six timeout/429/503 recovery cases
+from 35 to 53 distinct users. Actual 0.5.1 Cowork rendered-output acceptance
+remains pending; static Skill checks are not proof of whole-credit UI output.
+No new tools, permissions or resources were introduced.
 
 ### Basic profiles: missing user names
 
@@ -119,8 +134,20 @@ Inspect `status`, `rosterComplete`, failed-read counts, group errors and each
 row's profile/balance statuses. `serviceBalancePages` preserves original Graph
 wrappers, metadata, units, periods, missing quantities and observation times.
 Empty/missing service records are not zero. `paused` reports Retry-After and
-verified progress without an automatic retry loop; resume only deliberately
-after waiting. Results are observations over time, not an atomic snapshot.
+verified progress. Backend 0.5.1 advertises server-side continuation backoff:
+continuations wait up to ten seconds within the existing call budget, with
+no internal Graph retry loop. The Skill continues sequentially and stops after
+three consecutive pauses without observable progress; longer waits are reported,
+never shortened. Older/unknown backends require deliberate continuation after
+waiting. The one-second request spacing is unchanged, with a two-second reserve
+before new aggregate dispatches. Results are observations over time, not an
+atomic snapshot.
+
+Credit balances, consumption and limits are commercially rounded for display
+to whole credits (halves away from zero). Raw API values retain their precision;
+missing/null/error is unavailable, never zero. The final primary policy table
+has one row per distinct user GUID, including failed reads. Other records,
+periods or units are explained separately, never silently summed or duplicated.
 
 The offline 53-user fixture finishes in 14 aggregate calls with one profile
 lookup per distinct user, duplicate groups/users removed and multiple pages
@@ -152,9 +179,9 @@ is supporting Graph functionality, not another cost-management operation.
 There is no write endpoint,
 anonymous MCP mode or app-only Graph fallback.
 
-The [0.5.0 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.5.0/copilot-credit-management-0.5.0-template.zip)
+The [0.5.1 template ZIP](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/download/v0.5.1/copilot-credit-management-0.5.1-template.zip)
 includes the corresponding integrated Skill without deployment identifiers.
-See the [current release downloads](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0)
+See the [current release downloads](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.1)
 for the template and SHA-256 checksum; the four historical versions remain
 in the [previous release](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.4.0). Follow
 the [local configuration and import instructions](cowork-plugin/README.md).
@@ -224,7 +251,7 @@ Review as an authorized administrator. The Cowork OAuth client, token-store
 reference and `Mcp.Read offline_access` do not change. No broader directory,
 hidden-membership, application or write permissions are requested.
 
-Update/import the locally configured 0.5.0 plugin after the matching backend
+Update/import the locally configured 0.5.1 plugin after the matching backend
 rollout, start a new Cowork task and request:
 `Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand`.
 The Skill prefers server-side aggregation, follows opaque continuations
@@ -513,7 +540,7 @@ plugin source/icons and documentation are included. Confidential API
 documentation, local `.azure` state and validation environments, credentials,
 installed dependencies and generated build outputs are excluded from Git.
 Tenant-neutral template ZIPs and SHA-256 checksums are distributed as
-[GitHub Release attachments](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.0),
+[GitHub Release attachments](https://github.com/AndreasExner/Copilot-Credit-Management-MCP/releases/tag/v0.5.1),
 not binary commits. Configured, import-ready ZIPs remain local and must not be
 uploaded as neutral templates. The public templates intentionally retain
 configuration markers and cannot be imported directly.

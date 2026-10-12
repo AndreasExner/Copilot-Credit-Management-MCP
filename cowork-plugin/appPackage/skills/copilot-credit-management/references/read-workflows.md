@@ -1,5 +1,23 @@
 # Read workflows
 
+## Whole-credit display
+
+Apply this rule to displayed credit balances, consumption and credit limits
+from all supported reads. Commercially round only actually returned credit
+quantities to the nearest integer, with halves away from zero. Examples:
+12.49 -> 12; 12.50 -> 13; 0.49 -> 0; 0.50 -> 1; -12.50 -> -13.
+Normalize negative rounded zero to 0. Show no decimal places or trailing
+.0/,0. Preserve the original API quantities and units; do not round percentages
+or non-credit units under this rule, guess a conversion or infer a missing unit.
+
+Missing/null/error quantities remain unavailable, never zero. Explicit raw
+zero remains zero. State that credits are rounded for display and a displayed
+0 can result from rounding a nonzero quantity. Do not claim zero consumption
+or remaining balance merely because its rounded display is 0.
+Never derive remainingQuantity from purchased minus consumed values.
+If a permitted total is explicitly requested, use compatible unrounded values
+and round only the final display, not intermediate inputs.
+
 ## Balance
 
 Call `get_tenant_credit_balance` without arguments. The result has the server's
@@ -76,7 +94,8 @@ Use the returned observation time; it is not an atomic roster snapshot.
 
 ## Policy user table
 
-For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand":
+For "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand"
+or "Erstelle eine Tabelle mit den aktuellen Copilot Credits der Policy Small":
 
 ### Preferred aggregate workflow (backend 0.5.0 or later)
 
@@ -107,9 +126,8 @@ not guarantee a name was available or prove policy enforcement. `partial`,
 rosterComplete false, failed-read counts or group errors mean the corresponding
 inventory/read is incomplete. Do not omit failed users or turn errors into zero.
 
-For `status: paused`, report verified progress and Retry-After, stop automatic
-processing and resume only deliberately after waiting. The server performs no
-internal retry loop. Tokens are caller/policy/mode-bound and expire after
+Apply the bounded continuation rule below to `status: paused` and lost replies.
+The server performs no internal retry loop. Tokens are caller/policy/mode-bound and expire after
 15 minutes; restart or another replica makes them unavailable. Never substitute
 another caller or guess tokens. A replay of the last response does not re-read
 Graph and must not duplicate table rows.
@@ -121,6 +139,52 @@ error, explain the incomplete aggregate and use the individual paged MCP tools
 where appropriate. Do not bypass the connector. No app-only Graph or write
 permission is needed or requested. The same read permissions apply, including
 User.ReadBasic.All for missing names. A new plugin alone cannot deploy the tool.
+
+### Bounded continuation
+
+Backend 0.5.1 advertises server-side continuation backoff in the discovered
+aggregate tool description. Only that capability permits automatic short-wait
+continuation: for a valid returned token and a wait of at most 10 seconds,
+continue sequentially in the same task with the newest returned token and
+unchanged policy/mode. The backend enforces the remaining wait before Graph
+dispatch inside its existing 15-second budget. It does not retry a failed
+Graph operation internally. The one-second base request spacing is unchanged.
+For older/unknown backends, stop and request deliberate continuation after
+waiting; never assume a Cowork sleep tool, run scripts or bypass the connector.
+
+Keep all collected rows. Report interim verified progress such as 35/53 and
+continue to the final consolidated table. If a reply is lost after a token was
+sent, repeat the exact last request with that same previously sent token to
+recover the replayable reply, not a guessed newer token. Deduplicate replayed
+rows case-insensitively by GUID. Loss of the initial tokenless response cannot
+be recovered by guessing a token or silently creating replacement workflows.
+
+Stop on the third consecutive pause/interruption without observable progress.
+Reset the counter only when new unique rows, processed/discovered counters or
+the phase advance; changing tokens or timestamps alone is not progress.
+Do not immediately repeat a still-busy advancement. Long waits above 10 seconds,
+expired/invalid tokens, unavailable continuation, or permanent/authentication
+errors require an explicit progress/error report, not an automatic fresh run.
+Never shorten Retry-After to the ten-second automatic-wait boundary.
+Do not automatically sign out, grant consent or start parallel replacement runs.
+
+### Consolidated primary table
+
+Produce one primary table row per distinct user GUID across every response,
+including unavailable names, absent Cowork records and failed balance reads.
+Apply the whole-credit display rule. Explain additional returned records or
+incompatible periods/units separately instead of duplicating the primary user
+row or fabricating a combined balance.
+
+Before declaring completion, compare the distinct collected GUID count with
+terminal usersProcessed and usersDiscovered, verify no continuation remains,
+and inspect status, rosterComplete and failed-read/group errors. Terminal
+partial processing is not proof of complete balances or a complete roster.
+The reported Policy Small fixture has 53 people: a pause at 35/53 must retain
+those first 35 and subsequently include all 53 distinct users, not only the
+last 18. Never hard-code 53, trim additional real users or invent missing users
+when live discovery differs. An interrupted 35-row report is explicitly
+incomplete, not a complete 53-person table.
 
 ### Individual-tool fallback
 
@@ -155,7 +219,8 @@ capability; installing a newer plugin alone does not add server-side tools.
 5. For each distinct user, call `list_user_service_balances` sequentially using
    that GUID as `userId`; follow all its pages. Display only actually returned
    `serviceId: cowork` records. Preserve units/periods and explicit zero; use
-   separate rows for incompatible periods/units or multiple Cowork records.
+   explain incompatible periods/units or multiple Cowork records separately
+   while retaining one primary row per user.
    A failed read or absent Cowork record remains unavailable, not zero.
 6. Produce a table using fields actually returned: user name/UPN if available,
    user GUID, source groups, service/period/unit, consumed quantity, remaining
@@ -168,7 +233,9 @@ capability; installing a newer plugin alone does not add server-side tools.
    available. List failed groups separately because their missing users cannot
    be enumerated. Report all pending continuation pages. Detect repeated next
    links and stop with an explicit incomplete result rather than looping.
-   For throttling/timeouts, honor Retry-After and do not automatically retry.
+   For throttling/timeouts in this individual-tool fallback, honor Retry-After
+   and request deliberate continuation; these tools do not expose the aggregate
+   workflow's server-side pause gate or replay guarantee.
 
 This table shows the current returned per-user service data for the directory
 roster, not a policy-specific financial statement, effective policy assignment
@@ -198,6 +265,7 @@ backend must be updated; a new ZIP alone cannot expose that server capability.
 - "Erstelle eine Uebersicht aus Guthaben und Ausgabenrichtlinien."
 - "Zeige meine Copilot-Serviceguthaben und meinen Cowork-Verbrauch."
 - "Erstelle eine Tabelle aller User in Cowork Large, inkl. aktuellem Stand."
+- "Erstelle eine Tabelle mit den aktuellen Copilot Credits der Policy Small."
 
 These are read requests. A report should state the current caller/tenant
 context only when safely supplied by the runtime, not from a preset account.
